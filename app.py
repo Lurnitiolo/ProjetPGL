@@ -3,6 +3,7 @@ import streamlit as st
 # --- IMPORT CORRIGÉ ---
 # On importe la fonction 'quant_a_ui' depuis le fichier 'Arthur/Arthur_page.py'
 from Arthur.Arthur_page import quant_a_ui
+from Virgil.Virgil_page import quant_b_ui
 
 # Configuration de la page (doit être la première commande Streamlit)
 st.set_page_config(page_title="Finance Dashboard", layout="wide")
@@ -27,4 +28,4 @@ elif sidebar_option == "Quant A (Arthur)":
     quant_a_ui()
 
 elif sidebar_option == "Quant B (Virgil)":
-    st.warning("⚠️ Module Portfolio (Virgil) en cours de construction...")
+    quant_b_ui()
