@@ -52,30 +52,31 @@ def apply_strategies(df, ma_window=20):
     
     return data
 
-def calculate_metrics(series):
+def calculate_metrics(series, returns_series=None):
     """
-    Calcule la performance globale et le Max Drawdown.
+    Calcule Performance, Max Drawdown et Sharpe Ratio.
     
     Args:
-        series: Une série temporelle de valeurs cumulées (ex: la colonne 'Strat_Momentum')
-        
-    Returns:
-        total_return (float): Performance totale (ex: 0.12 pour 12%)
-        max_drawdown (float): Perte maximale historique (ex: -0.25 pour -25%)
+        series: La courbe de valeur cumulée (pour le drawdown et le total).
+        returns_series: La série des rendements quotidiens en % (pour le Sharpe).
     """
     if len(series) < 2:
-        return 0.0, 0.0
+        return 0.0, 0.0, 0.0
 
-    # 1. Performance totale 
-    # (Valeur Finale / Valeur Initiale) - 1
+    # 1. Performance Totale
     total_return = (series.iloc[-1] / series.iloc[0]) - 1
     
-    # 2. Max Drawdown (La pire chute du portefeuille)
-    # On calcule le sommet historique atteint à chaque instant (Running Max)
+    # 2. Max Drawdown
     running_max = series.cummax()
-    # On calcule l'écart actuel par rapport à ce sommet
     drawdown = (series - running_max) / running_max
-    # Le Max Drawdown est la valeur minimale de ces écarts
     max_drawdown = drawdown.min()
     
-    return total_return, max_drawdown
+    # 3. Sharpe Ratio (Nouveau !)
+    # On suppose un taux sans risque nul pour simplifier
+    # On annualise avec sqrt(252) car il y a ~252 jours de bourse par an
+    if returns_series is not None and returns_series.std() != 0:
+        sharpe_ratio = (returns_series.mean() / returns_series.std()) * np.sqrt(252)
+    else:
+        sharpe_ratio = 0.0
+    
+    return total_return, max_drawdown, sharpe_ratio
