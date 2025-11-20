@@ -5,15 +5,19 @@ import plotly.graph_objects as go
 from .data_loader import load_stock_data
 from .strategies import apply_strategies, calculate_metrics
 
-def quant_a_ui():
+def quant_b_ui():
     st.header("Analyse de Portefeuille & Diversification (Quant B)")    
     # --- 1. Barre latérale pour les contrôles ---
-    col1, col2 = st.columns(2)
-    with col1:
-        # Par défaut Bitcoin, mais tu peux changer
-        ticker = st.text_input("Ticker (Yahoo Finance)", value="BTC-USD")
-    with col2:
-        window = st.slider("Fenêtre Moyenne Mobile", min_value=5, max_value=200, value=20)
+    with st.sidebar:
+        st.subheader("Composition du Portefeuille")
+        
+        # [cite_start]Sélection multiple (Obligatoire pour Quant B : min 3 actifs) [cite: 41]
+        tickers_list = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "BTC-USD", "EURUSD=X", "GC=F"]
+        selected_tickers = st.multiselect(
+            "Sélectionnez les actifs (Min 3)", 
+            options=tickers_list, 
+            default=["AAPL", "MSFT", "BTC-USD"]
+        )
 
     if st.button("Lancer l'analyse"):
         # --- 2. Récupération et Calculs ---
