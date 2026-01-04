@@ -62,7 +62,12 @@ def quant_b_ui():
                     df = load_stock_data(ticker)
                     if df is not None and not df.empty:
                         # On stocke le DF transformé par la stratégie
-                        results[ticker] = apply_strategies(df, ma_window=ma_window)
+                        results[ticker] = apply_strategies(
+                        df, 
+                        ma_window=ma_window, 
+                        stop_loss=stop_loss / 100, 
+                        take_profit=take_profit / 100
+                    )
                 
                 # Sauvegarde en mémoire
                 st.session_state.portfolio_data = results

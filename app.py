@@ -29,3 +29,4 @@ elif sidebar_option == "Quant A (Arthur)":
 
 elif sidebar_option == "Quant B (Virgil)":
     quant_b_ui()
+    
