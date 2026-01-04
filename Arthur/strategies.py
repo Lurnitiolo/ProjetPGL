@@ -14,33 +14,40 @@ AVAILABLE_ASSETS = {
 }
 
 def calculate_metrics(df):
-    """Calcule les métriques financières avancées (M1 Finance Level)"""
+    """Calcule les métriques financières avancées"""
     metrics = {}
     
     # 1. Préparation des données
     df['Log_Ret'] = np.log(df['Close'] / df['Close'].shift(1))
+    
+    # Stratégie Buy & Hold (Base 100)
     df['Strat_BuyHold'] = df['Log_Ret'].cumsum().apply(np.exp) * 100
     
-    # Rendement Stratégie (Position d'hier * Rendement d'aujourd'hui)
+    # Stratégie Active
+    # Si Position = 1 (Hier), on prend le rendement du jour. Si 0, on prend 0.
     df['Strat_Ret'] = df['Position'].shift(1) * df['Log_Ret']
     df['Strat_Active'] = df['Strat_Ret'].cumsum().apply(np.exp) * 100
     
-    # Nettoyage des NaN (dûs aux lags/moyennes mobiles)
+    # Nettoyage
     df.dropna(inplace=True)
     
-    # --- FONCTION DE CALCUL INTERNE ---
-    def get_advanced_stats(returns_col, equity_col):
+    # --- FONCTION DE CALCUL ---
+    def get_advanced_stats(equity_col):
+        # On recalcule les rendements arithmétiques exacts depuis la courbe de capital
+        returns_col = equity_col.pct_change().dropna()
+        
         if len(returns_col) == 0: 
             return {k: 0 for k in ['Return', 'Vol', 'Sharpe', 'Sortino', 'MDD', 'VaR', 'CVaR', 'Skew', 'Kurt']}
         
         # 1. Rendement & Volatilité (Annualisés)
-        mean_ret_ann = returns_col.mean() * 252
+        total_ret = (equity_col.iloc[-1] / equity_col.iloc[0]) - 1
         vol_ann = returns_col.std() * np.sqrt(252)
         
-        # 2. Sharpe Ratio (Risk Free Rate = 0 pour simplifier)
+        # 2. Sharpe (Rf=0)
+        mean_ret_ann = returns_col.mean() * 252
         sharpe = mean_ret_ann / vol_ann if vol_ann != 0 else 0
         
-        # 3. Sortino Ratio (Downside Risk seulement)
+        # 3. Sortino
         negative_returns = returns_col[returns_col < 0]
         downside_std = negative_returns.std() * np.sqrt(252)
         sortino = mean_ret_ann / downside_std if downside_std != 0 else 0
@@ -50,47 +57,42 @@ def calculate_metrics(df):
         drawdown = (equity_col - running_max) / running_max
         mdd = drawdown.min()
         
-        # 5. Value at Risk (VaR) Historique 95%
-        # On regarde le 5ème centile des rendements journaliers
+        # 5. VaR & CVaR (95%)
         var_95 = np.percentile(returns_col, 5)
-        
-        # 6. Expected Shortfall (CVaR) 95%
-        # Moyenne des rendements inférieurs à la VaR
         cvar_95 = returns_col[returns_col <= var_95].mean()
         
-        # 7. Moments statistiques (Distribution)
+        # 6. Distribution
         dist_skew = skew(returns_col)
-        dist_kurt = kurtosis(returns_col) # Fisher (Normal = 0)
+        dist_kurt = kurtosis(returns_col)
         
         return {
-            'Return': np.exp(returns_col.sum()) - 1,
+            'Return': total_ret,
             'Vol': vol_ann,
             'Sharpe': sharpe,
             'Sortino': sortino,
             'MDD': mdd,
-            'VaR': var_95,   # En journalier
-            'CVaR': cvar_95, # En journalier
+            'VaR': var_95,
+            'CVaR': cvar_95,
             'Skew': dist_skew,
             'Kurt': dist_kurt
         }
 
-    # Calculs pour Buy & Hold
-    bh_stats = get_advanced_stats(df['Log_Ret'], df['Strat_BuyHold'])
+    # Calculs Buy & Hold
+    bh_stats = get_advanced_stats(df['Strat_BuyHold'])
     for k, v in bh_stats.items():
         metrics[f'BuyHold_{k}'] = v
 
-    # Calculs pour Stratégie Active
-    act_stats = get_advanced_stats(df['Strat_Ret'], df['Strat_Active'])
+    # Calculs Stratégie Active
+    act_stats = get_advanced_stats(df['Strat_Active'])
     for k, v in act_stats.items():
         metrics[f'Active_{k}'] = v
     
     return df, metrics
 
 def apply_strategies(df, strategy_type, params):
-    """ Routeur de stratégies (inchangé, juste appel metrics mis à jour) """
     df = df.copy()
     
-    # --- STRATÉGIE 1 : MOVING AVERAGE ---
+    # 1. Moving Average
     if strategy_type == "Moving Average":
         short_window = params.get('short_window', 20)
         long_window = params.get('long_window', 50)
@@ -98,7 +100,7 @@ def apply_strategies(df, strategy_type, params):
         df['SMA_Long'] = df['Close'].rolling(window=long_window).mean()
         df['Position'] = np.where(df['SMA_Short'] > df['SMA_Long'], 1, 0)
 
-    # --- STRATÉGIE 2 : BOLLINGER BANDS ---
+    # 2. Bollinger Bands
     elif strategy_type == "Bollinger Bands":
         window = params.get('bb_window', 20)
         std_dev = params.get('bb_std', 2.0)
@@ -112,7 +114,7 @@ def apply_strategies(df, strategy_type, params):
         df.loc[df['Close'] > df['Upper'], 'Position'] = 0 
         df['Position'] = df['Position'].ffill().fillna(0)
 
-    # --- STRATÉGIE 3 : RSI ---
+    # 3. RSI
     elif strategy_type == "RSI":
         window = params.get('rsi_window', 14)
         overbought = params.get('rsi_overbought', 70)
