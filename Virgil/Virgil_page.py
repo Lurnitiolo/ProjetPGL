@@ -17,6 +17,10 @@ def quant_b_ui():
         window = st.number_input(
             "Fenêtre de la Moyenne Mobile", min_value=5, max_value=100, value=20, step=1
         )
+    
+    if len(selected_tickers) < 3:
+        st.warning("⚠️ Veuillez sélectionner au moins 3 actifs pour une analyse de diversification optimale.")
+        return 
 
     if st.button("Lancer l'analyse"):
         for ticker in selected_tickers:
