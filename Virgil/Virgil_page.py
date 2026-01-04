@@ -14,7 +14,7 @@ def quant_b_ui():
             options=tickers_list, 
             default=["AAPL", "MSFT", "BTC-USD"]
         )
-        window = st.number_input(
+        ma_window = st.number_input(
             "Fenêtre de la Moyenne Mobile", min_value=5, max_value=100, value=20, step=1
         )
     
@@ -22,42 +22,40 @@ def quant_b_ui():
         st.warning("⚠️ Veuillez sélectionner au moins 3 actifs pour une analyse de diversification optimale.")
         return 
 
+    if len(selected_tickers) < 3:
+        st.warning("⚠️ Veuillez sélectionner au moins 3 actifs pour une analyse de diversification optimale.")
+        return # Arrête l'exécution si condition non remplie
+
     if st.button("Lancer l'analyse"):
-        for ticker in selected_tickers:
-            df = load_stock_data(ticker)
-            if df is not None and not df.empty:
-                window = 20
-                df_strat = apply_strategies(df, ma_window=window)
+        # Création des onglets dynamiquement selon les tickers choisis
+        tabs = st.tabs(selected_tickers)
+        
+        for i, ticker in enumerate(selected_tickers):
+            with tabs[i]: # On affiche le contenu dans l'onglet correspondant
+                st.subheader(f"Analyse détaillée : {ticker}")
                 
-                ret, mdd = calculate_metrics(df_strat['Strat_Momentum'])
+                with st.spinner(f"Chargement de {ticker}..."):
+                    df = load_stock_data(ticker)
                 
-                m1, m2 = st.columns(2)
-                m1.metric(f"Performance Stratégie ({ticker})", f"{ret:.2%}")
-                m2.metric(f"Max Drawdown ({ticker})", f"{mdd:.2%}")
+                if df is not None and not df.empty:
+                    # Utilisation de la variable ma_window choisie par l'utilisateur
+                    df_strat = apply_strategies(df, ma_window=ma_window)
+                    
+                    ret, mdd = calculate_metrics(df_strat['Strat_Momentum'])
+                    
+                    # Affichage des métriques dans des colonnes
+                    col1, col2 = st.columns(2)
+                    col1.metric("Performance Stratégie", f"{ret:.2%}")
+                    col2.metric("Max Drawdown", f"{mdd:.2%}", delta_color="inverse")
 
-                fig = go.Figure()
-                
-                fig.add_trace(go.Scatter(
-                    x=df_strat.index, y=df_strat['Close'], 
-                    mode='lines', name=f'Prix Actif {ticker}',
-                    line=dict(color='blue', width=1)
-                ))
-                
-                fig.add_trace(go.Scatter(
-                    x=df_strat.index, y=df_strat['MA'], 
-                    mode='lines', name=f'Moyenne Mobile {window}',
-                    line=dict(color='orange', width=1, dash='dot')
-                ))
-
-                fig.add_trace(go.Scatter(
-                    x=df_strat.index, y=df_strat['Strat_Momentum'],
-                    mode='lines', name='Valeur Portefeuille (Base 100)',
-                    line=dict(color='green', width=2)
-                ))
-                
-                st.plotly_chart(fig, use_container_width=True)
-                
-                st.success(f"Analyse terminée avec succès pour {ticker}.")
-            else:
-                    st.error(f"Erreur : Impossible de récupérer les données pour l'actif sélectionné ({ticker}). Vérifie le symbole ou la disponibilité des données.")
-                    st.error(f"Erreur : Impossible de récupérer les données pour {ticker}. Vérifie le ticker.")
+                    # Graphique interactif
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(x=df_strat.index, y=df_strat['Close'], name='Prix Actif', line=dict(color='rgba(0,0,255,0.4)')))
+                    fig.add_trace(go.Scatter(x=df_strat.index, y=df_strat['MA'], name=f'MA {ma_window}', line=dict(dash='dot')))
+                    fig.add_trace(go.Scatter(x=df_strat.index, y=df_strat['Strat_Momentum'], name='Stratégie', line=dict(color='green', width=2)))
+                    
+                    fig.update_layout(title=f"Évolution {ticker}", height=400, margin=dict(l=0, r=0, b=0, t=40))
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                else:
+                    st.error(f"Impossible de récupérer les données pour {ticker}.")
