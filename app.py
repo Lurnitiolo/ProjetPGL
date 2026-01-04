@@ -3,7 +3,7 @@ import streamlit as st
 # --- IMPORT CORRIGÉ ---
 # On importe la fonction 'quant_a_ui' depuis le fichier 'Arthur/Arthur_page.py'
 from Arthur.Arthur_page import quant_a_ui
-from Virgil.Virgil_page import quant_b_ui
+from Virgil.Virgil_page import quant_b_ui, min_max_scale
 
 # Configuration de la page (doit être la première commande Streamlit)
 st.set_page_config(page_title="Finance Dashboard", layout="wide")

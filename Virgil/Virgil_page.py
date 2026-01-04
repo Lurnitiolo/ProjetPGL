@@ -4,6 +4,12 @@ import pandas as pd
 from .data_loader import load_stock_data
 from .strategies import apply_strategies, calculate_metrics
 
+
+
+def min_max_scale(series):
+    return (series - series.min()) / (series.max() - series.min())
+
+
 def quant_b_ui():
     st.header("Analyse de Portefeuille & Diversification (Quant B)")    
 
@@ -55,20 +61,63 @@ def quant_b_ui():
             with tabs[i]:
                 st.subheader(f"Analyse {ticker}")
                 df_ticker = data_dict[ticker]
-                
-                # Métriques
+
+                # 1. Préparation des données pour le survol (Base 100)
+                # On divise par la première valeur et on multiplie par 100
+                hover_price = (df_ticker['Close'] / df_ticker['Close'].iloc[0]) * 100
+                hover_strat = (df_ticker['Strat_Momentum'] / df_ticker['Strat_Momentum'].iloc[0]) * 100
+                hover_ma = (df_ticker['MA'] / df_ticker['Close'].iloc[0]) * 100
+
+
+                y_price = min_max_scale(df_ticker['Close'])*100
+                y_strat = min_max_scale(df_ticker['Strat_Momentum'])*100
+                y_ma = min_max_scale(df_ticker['MA'])*100
+
+                # Métriques (toujours calculées sur les vraies valeurs)
                 ret, mdd = calculate_metrics(df_ticker['Strat_Momentum'])
                 c1, c2 = st.columns(2)
                 c1.metric("Performance (Stratégie)", f"{ret:.2%}")
                 c2.metric("Max Drawdown", f"{mdd:.2%}")
 
-                # Graphique détaillé
+                # 3. Création du graphique
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(x=df_ticker.index, y=df_ticker['Close'], name="Prix", line=dict(color='gray', width=1), opacity=0.5))
-                fig.add_trace(go.Scatter(x=df_ticker.index, y=df_ticker['MA'], name=f"MA {st.session_state.ma_used}", line=dict(dash='dot')))
-                fig.add_trace(go.Scatter(x=df_ticker.index, y=df_ticker['Strat_Momentum'], name="Stratégie", line=dict(color='blue', width=2)))
+
+                # Courbe Prix
+                fig.add_trace(go.Scatter(
+                    x=df_ticker.index, y=y_price,
+                    name="Prix",
+                    line=dict(color='gray', width=1),
+                    opacity=0.5,
+                    customdata=hover_price,
+                    hovertemplate="Prix (Indice): %{customdata:.2f}<extra></extra>"
+                ))
+
+                # Courbe MA
+                fig.add_trace(go.Scatter(
+                    x=df_ticker.index, y=y_ma,
+                    name=f"MA {st.session_state.ma_used}",
+                    line=dict(dash='dot', color='orange'),
+                    customdata=hover_ma,
+                    hovertemplate="MA (Indice): %{customdata:.2f}<extra></extra>"
+                ))
+
+                # Courbe Stratégie
+                fig.add_trace(go.Scatter(
+                    x=df_ticker.index, y=y_strat,
+                    name="Stratégie",
+                    line=dict(color='blue', width=2),
+                    customdata=hover_strat,
+                    hovertemplate="<b>Stratégie (Indice): %{customdata:.2f}</b><extra></extra>"
+                ))
+
+                # Réglages de l'axe Y pour qu'il soit discret
+                fig.update_layout(
+                    height=400,
+                    hovermode="x unified",
+                    yaxis=dict(title="Tendance", showticklabels=True),
+                    xaxis=dict(title="Date")
+                )
                 
-                fig.update_layout(height=400, hovermode="x unified", title=f"Détails {ticker}")
                 st.plotly_chart(fig, use_container_width=True)
 
         # --- 3. ONGLET PORTEFEUILLE GLOBAL (INTERACTIF) ---
