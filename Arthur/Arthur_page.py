@@ -1,56 +1,55 @@
 import streamlit as st
+# Note: On utilise des imports relatifs qui fonctionneront quand lancé via app.py
 from .data_loader import load_stock_data
-# On importe la liste des actifs qu'on a définie dans strategies.py
-from .strategies import AVAILABLE_ASSETS
+from .strategies import AVAILABLE_ASSETS, apply_strategies
 
 def quant_a_ui():
-    st.header("Module Quant A : Analyse Univariée")
+    st.header("Module Quant A : Analyse Univariée & Backtesting")
     
-    # --- 1. Zone de Configuration ---
+    # --- Configuration ---
     with st.expander("Paramètres de l'actif", expanded=True):
         col1, col2, col3 = st.columns(3)
-        
         with col1:
-            # MENU DÉROULANT (Selectbox)
-            # On affiche les noms lisibles (clés du dictionnaire)
-            selected_name = st.selectbox(
-                "Choisir un actif", 
-                options=list(AVAILABLE_ASSETS.keys()),
-                index=0
-            )
-            
-            # LOGIQUE : Si "Autre", on affiche un champ texte, sinon on prend le code
+            selected_name = st.selectbox("Choisir un actif", options=list(AVAILABLE_ASSETS.keys()))
             if selected_name == "Autre (Saisir manuellement)":
-                ticker = st.text_input("Symbole Yahoo (ex: AIR.PA)", value="AIR.PA")
+                ticker = st.text_input("Symbole Yahoo", value="AIR.PA")
             else:
-                # On récupère le code associé au nom (ex: "Bitcoin" -> "BTC-USD")
                 ticker = AVAILABLE_ASSETS[selected_name]
-        
         with col2:
-            interval = st.selectbox("Intervalle", ["1d", "1wk", "1mo"], index=0)
-            
+            # On force daily pour que les moyennes mobiles aient du sens
+            st.info("Intervalle fixé à '1d' pour le backtest")
+            interval = "1d" 
         with col3:
-            period = st.selectbox("Historique", ["1y", "2y", "5y", "max"], index=0)
+            period = st.selectbox("Historique", ["1y", "2y", "5y", "max"], index=1)
 
-    # --- 2. Action ---
-    if st.button(f"Analyser {selected_name}"):
-        
-        # Petit message de chargement
-        with st.spinner(f'Récupération des données pour {ticker}...'):
+    if st.button(f"Lancer l'analyse sur {selected_name}"):
+        with st.spinner(f'Calculs en cours pour {ticker}...'):
             
-            # On appelle ton data_loader
+            # 1. Chargement
             df = load_stock_data(ticker, period=period, interval=interval)
             
-            # --- 3. Résultat ---
-            if df is not None:
-                st.success(f"Données chargées pour {ticker} ({len(df)} lignes)")
+            if df is not None and not df.empty:
+                # 2. Application des stratégies
+                df_strat, metrics = apply_strategies(df)
                 
-                # On affiche juste le tableau comme demandé
-                st.write("### Données brutes")
-                st.dataframe(df.tail())
+                # 3. Affichage des Métriques (KPIs)
+                st.write("### 📊 Performance & Risque")
+                kpi1, kpi2, kpi3, kpi4 = st.columns(4)
                 
-                # Graphique simple de vérification
-                st.line_chart(df['Close'])
+                kpi1.metric("Sharpe (Buy&Hold)", f"{metrics['BuyHold_Sharpe']:.2f}")
+                kpi2.metric("Max Drawdown (B&H)", f"{metrics['BuyHold_MDD']:.2%}")
+                kpi3.metric("Sharpe (Momentum)", f"{metrics['Momentum_Sharpe']:.2f}")
+                kpi4.metric("Max Drawdown (Mom.)", f"{metrics['Momentum_MDD']:.2%}")
+                
+                # 4. Graphique Comparatif
+                st.write("### 📈 Comparaison des Stratégies (Base 100)")
+                # On affiche uniquement les colonnes de valeur
+                chart_data = df_strat[['Strat_BuyHold', 'Strat_Momentum']]
+                st.line_chart(chart_data)
+                
+                # 5. Données détaillées
+                with st.expander("Voir les données brutes"):
+                    st.dataframe(df_strat.tail())
                 
             else:
-                st.error(f"Erreur : Impossible de trouver l'actif '{ticker}'.")
+                st.error("Erreur de récupération des données.")
