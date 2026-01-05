@@ -1,149 +1,108 @@
 import streamlit as st
 import plotly.graph_objects as go
+import numpy as np
 import pandas as pd
 from .data_loader import load_stock_data
 from .strategies import apply_strategies, calculate_metrics
 
 def min_max_scale(series):
+    if series.max() == series.min(): return series * 0
     return (series - series.min()) / (series.max() - series.min())
 
 def quant_b_ui():
     st.header("Analyse de Portefeuille & Diversification (Quant B)")    
 
-    # --- 1. INITIALISATION DE LA MÉMOIRE ---
     if 'portfolio_data' not in st.session_state:
         st.session_state.portfolio_data = {} 
     if 'tickers_analyzed' not in st.session_state:
         st.session_state.tickers_analyzed = []
-    if 'ma_used' not in st.session_state:
-        st.session_state.ma_used = 20
 
-    # --- 2. BARRE LATÉRALE ENRICHIE ---
     with st.sidebar:
         st.title("⚙️ Paramètres")
-        
-        st.subheader("Actifs")
         tickers_list = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "BTC-USD", "EURUSD=X", "GC=F"]
-        selected_tickers = st.multiselect(
-            "Sélectionnez les actifs", 
-            options=tickers_list, 
-            default=["AAPL", "MSFT", "BTC-USD"]
-        )
-
-        st.divider()
-        
-        st.subheader("Gestion du Capital")
+        selected_tickers = st.multiselect("Actifs", options=tickers_list, default=["AAPL", "MSFT", "BTC-USD"])
         capital_init = st.number_input("Capital Initial ($)", value=1000, step=100)
-        
-        st.divider()
-
-        st.subheader("Stratégie MA")
-        ma_window = st.number_input("Fenêtre Moyenne Mobile", 5, 100, 20)
-        
-        st.subheader("Sécurité & Risque")
+        ma_window = st.number_input("Fenêtre MA", 5, 100, 20)
         stop_loss = st.slider("Stop Loss (%)", 0, 25, 10)
         take_profit = st.slider("Take Profit (%)", 0, 100, 30)
-
-        st.divider()
-
-        st.subheader("Options d'Affichage")
         show_price = st.checkbox("Afficher le Prix", value=True)
         show_ma = st.checkbox("Afficher la MA", value=True)
         
-        st.divider()
-        
-        # Bouton pour déclencher le téléchargement
-        launch_btn = st.button("🚀 Lancer l'analyse", use_container_width=True)
-        
-        if launch_btn:
-            with st.spinner("Téléchargement et calculs en cours..."):
+        if st.button("🚀 Lancer l'analyse", use_container_width=True):
+            with st.spinner("Calculs en cours..."):
                 results = {}
-                for ticker in selected_tickers:
-                    df = load_stock_data(ticker)
-                    if df is not None and not df.empty:
-                        # On stocke le DF transformé par la stratégie
-                        results[ticker] = apply_strategies(
-                        df, 
-                        ma_window=ma_window, 
-                        stop_loss=stop_loss / 100, 
-                        take_profit=take_profit / 100
-                    )
-                
-                # Sauvegarde en mémoire
+                for t in selected_tickers:
+                    df_raw = load_stock_data(t)
+                    if df_raw is not None:
+                        results[t] = apply_strategies(df_raw, ma_window, stop_loss/100, take_profit/100)
                 st.session_state.portfolio_data = results
                 st.session_state.tickers_analyzed = selected_tickers
-                st.session_state.ma_used = ma_window
 
-    # --- 3. AFFICHAGE DES ONGLETS ---
     if st.session_state.portfolio_data:
         tickers = st.session_state.tickers_analyzed
         data_dict = st.session_state.portfolio_data
-        
-        tab_list = tickers + ["📊 Portefeuille Global"]
-        tabs = st.tabs(tab_list)
+        tabs = st.tabs(tickers + ["📊 Portefeuille Global"])
 
         for i, ticker in enumerate(tickers):
             with tabs[i]:
-                st.subheader(f"Analyse {ticker}")
-                df_ticker = data_dict[ticker]
-
-                # Préparation des données pour le survol (Base 100)
-                hover_price = (df_ticker['Close'] / df_ticker['Close'].iloc[0]) * 100
-                hover_strat = (df_ticker['Strat_Momentum'] / df_ticker['Strat_Momentum'].iloc[0]) * 100
-                hover_ma = (df_ticker['MA'] / df_ticker['Close'].iloc[0]) * 100
-
-                # Scaling pour le graphique
-                y_price = min_max_scale(df_ticker['Close']) * 100
-                y_strat = min_max_scale(df_ticker['Strat_Momentum']) * 100
-                y_ma = min_max_scale(df_ticker['MA']) * 100
+                df_t = data_dict[ticker]
+                
+                # Bornes pour le scaling aligné sur la stratégie
+                s_min, s_max = df_t['Strat_Momentum'].min(), df_t['Strat_Momentum'].max()
+                def scale_strat(val): return ((val - s_min) / (s_max - s_min)) * 100 if s_max > s_min else 50
+                
+                y_price = min_max_scale(df_t['Close']) * 100
+                y_ma = min_max_scale(df_t['MA']) * 100
+                y_strat = scale_strat(df_t['Strat_Momentum'])
+                y_diff = y_strat.diff().abs()
 
                 # Métriques
-                ret, mdd = calculate_metrics(df_ticker['Strat_Momentum'])
-                valeur_finale = capital_init * (df_ticker['Strat_Momentum'].iloc[-1] / df_ticker['Strat_Momentum'].iloc[0])
-                
+                ret, mdd = calculate_metrics(df_t['Strat_Momentum'])
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Performance", f"{ret:.2%}")
                 c2.metric("Max Drawdown", f"{mdd:.2%}")
-                c3.metric("Valeur Finale", f"{valeur_finale:.2f} $")
+                c3.metric("Valeur Finale", f"{capital_init*(1+ret):.2f} $")
 
-                # Création du graphique
                 fig = go.Figure()
 
-                if show_price:
-                    fig.add_trace(go.Scatter(
-                        x=df_ticker.index, y=y_price,
-                        name="Prix",
-                        line=dict(color='gray', width=1),
-                        opacity=0.5,
-                        customdata=hover_price,
-                        hovertemplate="Prix (Indice): %{customdata:.2f}<extra></extra>"
-                    ))
-
-                if show_ma:
-                    fig.add_trace(go.Scatter(
-                        x=df_ticker.index, y=y_ma,
-                        name=f"MA {st.session_state.ma_used}",
-                        line=dict(dash='dot', color='orange'),
-                        customdata=hover_ma,
-                        hovertemplate="MA (Indice): %{customdata:.2f}<extra></extra>"
-                    ))
-
-                fig.add_trace(go.Scatter(
-                    x=df_ticker.index, y=y_strat,
-                    name="Stratégie",
-                    line=dict(color='blue', width=2),
-                    customdata=hover_strat,
-                    hovertemplate="<b>Stratégie (Indice): %{customdata:.2f}</b><extra></extra>"
-                ))
-
-                fig.update_layout(
-                    height=400,
-                    hovermode="x unified",
-                    yaxis=dict(title="Tendance Indexée", showticklabels=True),
-                    xaxis=dict(title="Date"),
-                    template="plotly_dark"
-                )
+                df_t['active_zone'] = np.where(df_t['Strat_Returns'] != 0, 1, 0)
                 
+                df_t['group_id'] = (df_t['active_zone'] != df_t['active_zone'].shift()).cumsum()
+                
+                investment_periods = df_t[df_t['active_zone'] == 1].groupby('group_id')
+
+                for _, period in investment_periods:
+                    start_date = period.index[0] - pd.Timedelta(days=1)
+                    end_date = period.index[-1]
+                    
+                    fig.add_vrect(
+                        x0=start_date, 
+                        x1=end_date,
+                        fillcolor="rgba(0, 255, 0, 0.15)", 
+                        layer="below",                   
+                        line_width=0                     
+                    )
+                    
+                if show_price: fig.add_trace(go.Scatter(x=df_t.index, y=y_price, name="Prix", line=dict(color='gray'), opacity=0.3))
+                if show_ma: fig.add_trace(go.Scatter(x=df_t.index, y=y_ma, name="MA", line=dict(dash='dot', color='orange')))
+                # Dans ton Virgil_page.py, la ligne stratégie devient :
+                fig.add_trace(go.Scatter(
+                    x=df_t.index, 
+                    y=y_strat, 
+                    name="Stratégie", 
+                    line=dict(color='blue', width=2.5),
+                    connectgaps=False
+))
+
+                # --- 3. MARQUEURS SL / TP ---
+                sl_ev = df_t[df_t['Exit_Type'] == "SL"]
+                tp_ev = df_t[df_t['Exit_Type'] == "TP"]
+                if not sl_ev.empty:
+                    fig.add_trace(go.Scatter(x=sl_ev.index, y=scale_strat(sl_ev['Strat_Momentum']), mode='markers', marker=dict(color='red', symbol='x', size=10), name='Stop Loss'))
+                if not tp_ev.empty:
+                    fig.add_trace(go.Scatter(x=tp_ev.index, y=scale_strat(tp_ev['Strat_Momentum']), mode='markers', marker=dict(color='lime', symbol='star', size=12), name='Take Profit'))
+
+                fig.update_layout(height=450, template="plotly_dark", hovermode="x unified", title=f"Analyse {ticker}")
                 st.plotly_chart(fig, use_container_width=True)
 
         with tabs[-1]:
