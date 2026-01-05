@@ -1,6 +1,31 @@
 import yfinance as yf
 import pandas as pd
 
+def get_logo_url(ticker):
+    # Mapping manuel pour les domaines connus
+    domains = {
+        "AAPL": "apple.com", "MSFT": "microsoft.com", "GOOGL": "google.com",
+        "AMZN": "amazon.com", "TSLA": "tesla.com", "EURUSD=X": "ecb.europa.eu"
+    }
+    
+    # Gestion des Cryptos (ex: BTC-USD -> btc)
+    if "-USD" in ticker:
+        symbol = ticker.split("-")[0].lower()
+        return f"https://cryptoicons.org/api/icon/{symbol}/100"
+    
+    # Gestion de l'Or (Gold)
+    if ticker == "GC=F":
+        return "https://cdn-icons-png.flaticon.com/512/272/272530.png"
+
+    # Utilisation du service Google Favicon (très stable)
+    domain = domains.get(ticker)
+    if domain:
+        return f"https://www.google.com/s2/favicons?domain={domain}&sz=128"
+    
+    return None
+
+
+
 def load_stock_data(ticker, period="1y", interval="1d"):
     """
     Charge les données historiques pour un actif donné.
