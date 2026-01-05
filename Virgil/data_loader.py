@@ -16,6 +16,9 @@ def get_logo_url(ticker):
     # Gestion de l'Or (Gold)
     if ticker == "GC=F":
         return "https://cdn-icons-png.flaticon.com/512/272/272530.png"
+    
+    if ticker == "BTC-USD":
+        return "https://cryptoicons.org/api/icon/btc/100"
 
     # Utilisation du service Google Favicon (très stable)
     domain = domains.get(ticker)
