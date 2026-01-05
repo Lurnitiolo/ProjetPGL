@@ -9,16 +9,14 @@ def get_logo_url(ticker):
     }
     
     # Gestion des Cryptos (ex: BTC-USD -> btc)
-    if "-USD" in ticker:
+    if "BTC-USD" in ticker:
         symbol = ticker.split("-")[0].lower()
-        return f"https://cryptoicons.org/api/icon/{symbol}/100"
+        return f"https://www.flaticon.com/fr/icone-gratuite/bitcoin_3985686?term=bitcoin&page=1&position=2&origin=tag&related_id=3985686"
     
     # Gestion de l'Or (Gold)
     if ticker == "GC=F":
         return "https://cdn-icons-png.flaticon.com/512/272/272530.png"
     
-    if ticker == "BTC-USD":
-        return "https://cryptoicons.org/api/icon/btc/100"
 
     # Utilisation du service Google Favicon (très stable)
     domain = domains.get(ticker)
