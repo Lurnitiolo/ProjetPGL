@@ -95,19 +95,54 @@ def quant_b_ui():
                         hoverlabel=dict(bgcolor="white", font_size=35, font_family="Arial", font_color="black", bordercolor="black"))
                     st.plotly_chart(fig_pie, use_container_width=True)
 
+            # --- 3. CALCULS ET GRAPHIQUE DE PERFORMANCE ---
             if total_w > 0:
                 st.divider()
+                # On prépare le DataFrame avec tous les actifs
                 df_global = pd.DataFrame({t: data_dict[t]['Strat_Momentum'] for t in tickers}).dropna()
-                df_global['Value'] = sum(df_global[t] * (weights[t]/total_w) for t in tickers)
-                p_ret, p_mdd = calculate_metrics(df_global['Value'])
+                
+                # CALCUL DE LA VALEUR DU PORTEFEUILLE (Nom exact : Portfolio_Value)
+                df_global['Portfolio_Value'] = sum(df_global[t] * (weights[t] / total_w) for t in tickers)
+
+                # Calcul des métriques
+                p_ret, p_mdd = calculate_metrics(df_global['Portfolio_Value'])
+                
                 m1, m2, m3 = st.columns(3)
                 m1.metric("Rendement Global", f"{p_ret:.2%}")
                 m2.metric("Risque (MDD)", f"{p_mdd:.2%}")
-                m3.metric("Total Alloué", f"{total_w:.2f}%", delta=f"{total_w-100:.2f}%" if abs(total_w-100)>0.1 else None, delta_color="inverse")
-                
+                m3.metric("Total Alloué", f"{total_w:.2f}%", 
+                          delta=f"{total_w-100:.2f}%" if abs(total_w-100) > 0.1 else None, 
+                          delta_color="inverse")
+
+                # CONSTRUCTION DU GRAPHIQUE
                 fig_glob = go.Figure()
-                fig_glob.add_trace(go.Scatter(x=df_global.index, y=df_global['Value'], name="MON PORTEFEUILLE", line=dict(color='gold', width=4)))
-                fig_glob.update_layout(height=500, title="Performance du Panier", template="plotly_dark", hovermode="x unified")
+
+                # 1. Ajout des courbes individuelles (en pointillé léger)
+                for t in tickers:
+                    if weights[t] > 0: # On n'affiche que ceux qui contribuent
+                        fig_glob.add_trace(go.Scatter(
+                            x=df_global.index, 
+                            y=df_global[t], 
+                            name=f"Contrib: {t}", 
+                            line=dict(width=2, dash='dot'), 
+                            opacity=0.7
+                        ))
+
+                # 2. Ajout de la courbe Or du portefeuille (au premier plan)
+                fig_glob.add_trace(go.Scatter(
+                    x=df_global.index, 
+                    y=df_global['Portfolio_Value'], 
+                    name="MON PORTEFEUILLE", 
+                    line=dict(color='gold', width=4)
+                ))
+
+                fig_glob.update_layout(
+                    height=550, 
+                    title="Performance du Panier Dynamique vs Actifs", 
+                    template="plotly_dark", 
+                    hovermode="x unified",
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5)
+                )
                 st.plotly_chart(fig_glob, use_container_width=True)
     else:
         st.write("---")
