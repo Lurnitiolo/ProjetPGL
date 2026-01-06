@@ -115,51 +115,102 @@ def render_portfolio_simulation(tickers, data_dict, cap_init):
     total_w = sum(weights.values())
 
     if total_w > 0:
-        # --- 2. CALCULS ET GRAPHIQUES ---
+        # --- 1. CALCULS DE PERFORMANCE ---
         df_global = pd.DataFrame({t: data_dict[t]['Strat_Momentum'] for t in tickers}).dropna()
         w_arr = np.array([weights[t] / total_w for t in tickers])
         df_global['Portfolio_Value'] = df_global.dot(w_arr)
+        
+        # Métriques pour le portefeuille
+        port_return, port_mdd = calculate_metrics(df_global['Portfolio_Value'])
+        df_rets = pd.DataFrame({t: data_dict[t]['Strat_Returns'] for t in tickers}).dropna()
+        port_daily_rets = df_rets.dot(w_arr)
+        port_vol = port_daily_rets.std() * np.sqrt(252)
 
+        # --- 2. RÉPARTITION ET PERFORMANCE GLOBALE ---
         with col_visual:
             fig_pie = go.Figure(data=[go.Pie(labels=list(weights.keys()), values=list(weights.values()), hole=.5)])
-            fig_pie.update_layout(template="plotly_dark", height=350, showlegend=False,
-                                  hoverlabel=dict(bgcolor="white", font_color="black", font_size=20))
-            st.plotly_chart(fig_pie, use_container_width=True)
+            fig_pie.update_layout(template="plotly_dark", height=350, showlegend=False)
+            # Ajout d'une clé unique
+            st.plotly_chart(fig_pie, use_container_width=True, key="portfolio_pie_chart")
 
         st.divider()
         
-        # --- 3. GRAPHIQUE AVEC TOUTES LES COURBES (Restauré) ---
+        # Graphique des courbes cumulées
         fig_glob = go.Figure()
-        # On remet les courbes individuelles en arrière-plan
         for t in tickers:
             if weights[t] > 0:
                 fig_glob.add_trace(go.Scatter(x=df_global.index, y=df_global[t], 
                                               name=f"Contrib: {t}", line=dict(width=1, dash='dot'), opacity=0.5))
         
-        # Courbe principale du portefeuille
         fig_glob.add_trace(go.Scatter(x=df_global.index, y=df_global['Portfolio_Value'], 
                                       name="MON PORTEFEUILLE", line=dict(color='gold', width=4)))
         
         fig_glob.update_layout(height=450, title="Performance du Panier vs Actifs", template="plotly_dark", hovermode="x unified")
-        st.plotly_chart(fig_glob, use_container_width=True)
+        # Ajout d'une clé unique
+        st.plotly_chart(fig_glob, use_container_width=True, key="portfolio_perf_main")
 
-        # --- 4. MÉTRIQUES (Vol, Sharpe, Corrélation) ---
-        df_rets = pd.DataFrame({t: data_dict[t]['Strat_Returns'] for t in tickers}).dropna()
-        port_daily_rets = df_rets.dot(w_arr)
-        port_vol = port_daily_rets.std() * np.sqrt(252)
-        port_ret, port_mdd = calculate_metrics(df_global['Portfolio_Value'])
-        
+        # --- 3. MÉTRIQUES ET ANALYSE AVANCÉE ---
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Rendement", f"{port_ret:.2%}")
+        m1.metric("Rendement", f"{port_return:.2%}")
         m2.metric("Risque (MDD)", f"{port_mdd:.2%}")
         m3.metric("Volatilité Ann.", f"{port_vol:.2%}")
-        m4.metric("Sharpe Ratio", f"{(port_ret/port_vol):.2f}" if port_vol > 0 else "0.00")
+        m4.metric("Sharpe Ratio", f"{(port_return/port_vol):.2f}" if port_vol > 0 else "0.00")
 
-        st.write("**Matrice de Corrélation**")
-        corr = df_rets.corr()
-        fig_corr = go.Figure(data=go.Heatmap(z=corr, x=corr.columns, y=corr.columns, colorscale='RdBu', zmin=-1, zmax=1))
-        fig_corr.update_layout(height=350, template="plotly_dark")
-        st.plotly_chart(fig_corr, use_container_width=True)
+        st.divider()
+        c_mat, c_comp = st.columns([1, 1])
+
+        with c_mat:
+            st.write("**Matrice de Corrélation (Carrée)**")
+            corr_matrix = df_rets.corr()
+            fig_corr = go.Figure(data=go.Heatmap(
+                z=corr_matrix.values, x=corr_matrix.columns, y=corr_matrix.index,
+                colorscale='RdBu', zmin=-1, zmax=1,
+                text=np.round(corr_matrix.values, 2), texttemplate="%{text}"
+            ))
+            fig_corr.update_layout(
+                height=450, template="plotly_dark",
+                xaxis=dict(constrain="domain"),
+                yaxis=dict(scaleanchor="x", scaleratio=1, constrain="domain"),
+                margin=dict(t=10, b=10, l=10, r=10)
+            )
+            # Ajout d'une clé unique
+            st.plotly_chart(fig_corr, use_container_width=True, key="portfolio_heatmap_square")
+
+        with c_comp:
+            st.write("**Comparaison Risque vs Rendement**")
+            comparison_data = []
+            for t in tickers:
+                ret_t, _ = calculate_metrics(data_dict[t]['Strat_Momentum'])
+                vol_t = data_dict[t]['Strat_Returns'].std() * np.sqrt(252)
+                comparison_data.append({'Name': t, 'Return': ret_t * 100, 'Vol': vol_t * 100, 'Type': 'Asset'})
+            
+            comparison_data.append({'Name': 'PORTFOLIO', 'Return': port_return * 100, 'Vol': port_vol * 100, 'Type': 'Portfolio'})
+            df_plot = pd.DataFrame(comparison_data)
+
+            fig_risk_ret = go.Figure()
+            # Actifs seuls
+            assets = df_plot[df_plot['Type'] == 'Asset']
+            fig_risk_ret.add_trace(go.Scatter(
+                x=assets['Vol'], y=assets['Return'], mode='markers+text',
+                name='Actifs seuls', text=assets['Name'], textposition="top center",
+                marker=dict(size=12, color='#4facfe', line=dict(width=1, color='white'))
+            ))
+            # Portefeuille
+            port = df_plot[df_plot['Type'] == 'Portfolio']
+            fig_risk_ret.add_trace(go.Scatter(
+                x=port['Vol'], y=port['Return'], mode='markers+text',
+                name='MON PORTEFEUILLE', text=['MON PORTEFEUILLE'], textposition="bottom center",
+                marker=dict(size=18, color='gold', symbol='star', line=dict(width=2, color='white'))
+            ))
+
+            fig_risk_ret.update_layout(
+                height=450, template="plotly_dark",
+                xaxis_title="Volatilité Annuelle (%)", yaxis_title="Rendement Total (%)",
+                margin=dict(t=10, b=10, l=10, r=10), showlegend=False
+            )
+            # Ajout d'une clé unique
+            st.plotly_chart(fig_risk_ret, use_container_width=True, key="portfolio_risk_return_scatter")
+
         
         
         
