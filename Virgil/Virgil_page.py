@@ -115,27 +115,22 @@ def render_portfolio_simulation(tickers, data_dict, cap_init):
     total_w = sum(weights.values())
 
     if total_w > 0:
-        # --- 1. CALCULS DE PERFORMANCE ---
         df_global = pd.DataFrame({t: data_dict[t]['Strat_Momentum'] for t in tickers}).dropna()
         w_arr = np.array([weights[t] / total_w for t in tickers])
         df_global['Portfolio_Value'] = df_global.dot(w_arr)
         
-        # Métriques pour le portefeuille
         port_return, port_mdd = calculate_metrics(df_global['Portfolio_Value'])
         df_rets = pd.DataFrame({t: data_dict[t]['Strat_Returns'] for t in tickers}).dropna()
         port_daily_rets = df_rets.dot(w_arr)
         port_vol = port_daily_rets.std() * np.sqrt(252)
 
-        # --- 2. RÉPARTITION ET PERFORMANCE GLOBALE ---
         with col_visual:
             fig_pie = go.Figure(data=[go.Pie(labels=list(weights.keys()), values=list(weights.values()), hole=.5)])
             fig_pie.update_layout(template="plotly_dark", height=350, showlegend=False)
-            # Ajout d'une clé unique
             st.plotly_chart(fig_pie, use_container_width=True, key="portfolio_pie_chart")
 
         st.divider()
         
-        # Graphique des courbes cumulées
         fig_glob = go.Figure()
         for t in tickers:
             if weights[t] > 0:
@@ -146,10 +141,8 @@ def render_portfolio_simulation(tickers, data_dict, cap_init):
                                       name="MON PORTEFEUILLE", line=dict(color='gold', width=4)))
         
         fig_glob.update_layout(height=450, title="Performance du Panier vs Actifs", template="plotly_dark", hovermode="x unified")
-        # Ajout d'une clé unique
         st.plotly_chart(fig_glob, use_container_width=True, key="portfolio_perf_main")
 
-        # --- 3. MÉTRIQUES ET ANALYSE AVANCÉE ---
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Rendement", f"{port_return:.2%}")
         m2.metric("Risque (MDD)", f"{port_mdd:.2%}")
@@ -169,15 +162,34 @@ def render_portfolio_simulation(tickers, data_dict, cap_init):
             ))
             fig_corr.update_layout(
                 height=450, template="plotly_dark",
-                xaxis=dict(constrain="domain"),
-                yaxis=dict(scaleanchor="x", scaleratio=1, constrain="domain"),
+                xaxis=dict(constrain="domain",
+                        fixedrange=True, 
+                        showgrid=False, 
+                        showticklabels=False, 
+                        zeroline=False
+                ),
+                yaxis=dict( scaleanchor="x",
+                            scaleratio=1, 
+                            constrain="domain",
+                            fixedrange=True, 
+                            showgrid=False, 
+                            showticklabels=False, 
+                            zeroline=False),
                 margin=dict(t=10, b=10, l=10, r=10)
             )
-            # Ajout d'une clé unique
-            st.plotly_chart(fig_corr, use_container_width=True, key="portfolio_heatmap_square")
+
+            st.plotly_chart(fig_corr, 
+                            use_container_width=True, 
+                            key="portfolio_heatmap_square",
+                            config={
+                                'displayModeBar': False,
+                                'staticPlot': False 
+                })
 
         with c_comp:
             st.write("**Comparaison Risque vs Rendement**")
+            
+            # 1. Préparation des données
             comparison_data = []
             for t in tickers:
                 ret_t, _ = calculate_metrics(data_dict[t]['Strat_Momentum'])
@@ -187,31 +199,104 @@ def render_portfolio_simulation(tickers, data_dict, cap_init):
             comparison_data.append({'Name': 'PORTFOLIO', 'Return': port_return * 100, 'Vol': port_vol * 100, 'Type': 'Portfolio'})
             df_plot = pd.DataFrame(comparison_data)
 
+            # Calcul des limites
+            v_max = df_plot['Vol'].max() * 1.3
+            r_max = df_plot['Return'].max() * 1.3
+            r_min = df_plot['Return'].min() * 1.3 if df_plot['Return'].min() < 0 else -r_max * 0.2
+            v_mid, r_mid = v_max / 2, (r_max + r_min) / 2
+
             fig_risk_ret = go.Figure()
-            # Actifs seuls
+
+            # --- 2. LE FOND (Heatmap) ---
+            v_space = np.linspace(0, v_max, 25)
+            r_space = np.linspace(r_min, r_max, 25)
+            z = [[(r - v) for v in v_space] for r in r_space]
+
+            fig_risk_ret.add_trace(go.Heatmap(
+                z=z, x=v_space, y=r_space,
+                colorscale=[[0, 'rgba(231, 76, 60, 1)'], [0.5, 'rgba(255, 251, 0, 0.1)'], [1, 'rgba(46, 204, 113, 1)']],
+                showscale=False, hoverinfo='skip'
+            ))
+
+            # --- 3. LA CROIX CENTRALE (+) ---
+            fig_risk_ret.add_shape(type="line", x0=0, y0=r_mid, x1=v_max, y1=r_mid,
+                                   line=dict(color="black", width=2), layer="below")
+            fig_risk_ret.add_shape(type="line", x0=v_mid, y0=r_min, x1=v_mid, y1=r_max,
+                                   line=dict(color="black", width=2), layer="below")
+
+            # --- 4. EXPLICATIONS SUR LES CÔTÉS (LÉGENDES AXES) ---
+            # Légende Rendement (Généralement à gauche)
+            fig_risk_ret.add_annotation(
+                xref="paper", yref="paper", x=-0.08, y=0.5,
+                text="<b>RENDEMENT →</b><br><i>Plus de gains</i>",
+                showarrow=False, textangle=-90, font=dict(size=12, color="black")
+            )
+            
+            # Légende Risque (Généralement en bas)
+            fig_risk_ret.add_annotation(
+                xref="paper", yref="paper", x=0.5, y=-0.1,
+                text="<b>RISQUE (Volatilité) →</b><br><i>Plus d'incertitude</i>",
+                showarrow=False, font=dict(size=12, color="black")
+            )
+
+            # --- 5. POINTS AU PREMIER PLAN ---
             assets = df_plot[df_plot['Type'] == 'Asset']
             fig_risk_ret.add_trace(go.Scatter(
                 x=assets['Vol'], y=assets['Return'], mode='markers+text',
-                name='Actifs seuls', text=assets['Name'], textposition="top center",
-                marker=dict(size=12, color='#4facfe', line=dict(width=1, color='white'))
+                text=assets['Name'], textposition="top center",
+                marker=dict(size=12, color='white', line=dict(width=1.5, color='black')),
+                name='Actifs'
             ))
-            # Portefeuille
+
             port = df_plot[df_plot['Type'] == 'Portfolio']
             fig_risk_ret.add_trace(go.Scatter(
                 x=port['Vol'], y=port['Return'], mode='markers+text',
-                name='MON PORTEFEUILLE', text=['MON PORTEFEUILLE'], textposition="bottom center",
-                marker=dict(size=18, color='gold', symbol='star', line=dict(width=2, color='white'))
+                text=['PORTFOLIO'], textposition="bottom center",
+                marker=dict(size=24, color='gold', symbol='star', line=dict(width=2, color='black')),
+                name='Mon Portefeuille'
             ))
 
-            fig_risk_ret.update_layout(
-                height=450, template="plotly_dark",
-                xaxis_title="Volatilité Annuelle (%)", yaxis_title="Rendement Total (%)",
-                margin=dict(t=10, b=10, l=10, r=10), showlegend=False
-            )
-            # Ajout d'une clé unique
-            st.plotly_chart(fig_risk_ret, use_container_width=True, key="portfolio_risk_return_scatter")
 
-        
+            fig_risk_ret.add_annotation(x=v_mid, y=r_max, ax=0, ay=25, xref="x", yref="y",
+                                        showarrow=True, arrowhead=2, arrowcolor="black", arrowwidth=2)
+            fig_risk_ret.add_annotation(x=v_max, y=r_mid, ax=-25, ay=0, xref="x", yref="y",
+                                        showarrow=True, arrowhead=2, arrowcolor="black", arrowwidth=2)
+
+            fig_risk_ret.update_layout(
+                height=500, 
+                template="plotly_white",
+                xaxis=dict(
+                    range=[0, v_max], 
+                    fixedrange=True, 
+                    showgrid=False, 
+                    showticklabels=True,  # RÉACTIVÉ : Affiche les valeurs en bas
+                    ticksuffix="%",       # AJOUTÉ : Format 15%
+                    zeroline=False,
+                    color="black"         # Couleur des chiffres
+                ),
+                yaxis=dict(
+                    range=[r_min, r_max], 
+                    fixedrange=True, 
+                    showgrid=False, 
+                    showticklabels=True,  # RÉACTIVÉ : Affiche les valeurs à gauche
+                    ticksuffix="%",       # AJOUTÉ : Format 10%
+                    zeroline=False,
+                    color="black"         # Couleur des chiffres
+                ),
+                # Ajustement des marges pour ne pas couper les chiffres
+                margin=dict(t=30, b=60, l=70, r=40),
+                showlegend=False
+            )
+
+            st.plotly_chart(
+                fig_risk_ret, 
+                use_container_width=True, 
+                key="risk_ret_static",
+                config={
+                    'displayModeBar': False,
+                    'staticPlot': False 
+                }
+            )
         
         
         
