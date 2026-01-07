@@ -1,11 +1,9 @@
 import streamlit as st
 
-# --- IMPORT CORRIGÉ ---
-from Arthur.Arthur_page import quant_a_ui
-
 st.set_page_config(page_title="Finance Dashboard", layout="wide")
 
-st.title("Plateforme de Gestion Quantitative")
+# --- IMPORT CORRIGÉ ---
+from Arthur.Arthur_page import quant_a_ui
 
 # --- NAVIGATION ---
 sidebar_option = st.sidebar.radio(

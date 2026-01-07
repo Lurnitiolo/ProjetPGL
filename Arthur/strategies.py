@@ -14,7 +14,7 @@ AVAILABLE_ASSETS = {
 }
 
 def calculate_metrics(df):
-    """Calcule les métriques financières avancées"""
+    """Calcule les métriques financières avancées + Stats de Trading"""
     metrics = {}
     
     # 1. Préparation des données
@@ -31,13 +31,44 @@ def calculate_metrics(df):
     # Nettoyage
     df.dropna(inplace=True)
     
-    # --- FONCTION DE CALCUL ---
+    # --- CALCUL DES TRADES (CORRIGÉ) ---
+    trades = []
+    current_trade_ret = 0
+    
+    # On itère pour détecter les entrées/sorties
+    positions = df['Position'].values
+    returns = df['Log_Ret'].values
+    
+    # On commence à 1 car on regarde i-1
+    for i in range(1, len(df)):
+        # Si on était en position la veille (donc exposé aujourd'hui)
+        if positions[i-1] == 1:
+            current_trade_ret += returns[i] # On cumule la perf
+            
+            # Si on sort aujourd'hui (0) ou que c'est la fin des données
+            if positions[i] == 0 or i == len(df)-1:
+                trades.append(current_trade_ret)
+                current_trade_ret = 0
+    
+    # Calcul des stats de trading
+    nb_trades = len(trades)
+    if nb_trades > 0:
+        # On considère un trade gagnant si rendement > 0
+        winning_trades = sum(1 for t in trades if t > 0)
+        win_rate = winning_trades / nb_trades
+    else:
+        win_rate = 0
+        
+    # C'EST ICI QUE J'AI CORRIGÉ LE NOM DE LA VARIABLE :
+    metrics['Active_Trades'] = nb_trades  
+    metrics['Active_WinRate'] = win_rate
+
+    # --- FONCTION DE CALCUL FINANCIER ---
     def get_advanced_stats(equity_col):
-        # On recalcule les rendements arithmétiques exacts depuis la courbe de capital
         returns_col = equity_col.pct_change().dropna()
         
         if len(returns_col) == 0: 
-            return {k: 0 for k in ['Return', 'Vol', 'Sharpe', 'Sortino', 'MDD', 'VaR', 'CVaR', 'Skew', 'Kurt']}
+            return {k: 0 for k in ['Return', 'Vol', 'Sharpe', 'Sortino', 'MDD', 'VaR', 'CVaR']}
         
         # 1. Rendement & Volatilité (Annualisés)
         total_ret = (equity_col.iloc[-1] / equity_col.iloc[0]) - 1
@@ -61,10 +92,6 @@ def calculate_metrics(df):
         var_95 = np.percentile(returns_col, 5)
         cvar_95 = returns_col[returns_col <= var_95].mean()
         
-        # 6. Distribution
-        dist_skew = skew(returns_col)
-        dist_kurt = kurtosis(returns_col)
-        
         return {
             'Return': total_ret,
             'Vol': vol_ann,
@@ -72,9 +99,7 @@ def calculate_metrics(df):
             'Sortino': sortino,
             'MDD': mdd,
             'VaR': var_95,
-            'CVaR': cvar_95,
-            'Skew': dist_skew,
-            'Kurt': dist_kurt
+            'CVaR': cvar_95
         }
 
     # Calculs Buy & Hold
@@ -92,16 +117,22 @@ def calculate_metrics(df):
 def apply_strategies(df, strategy_type, params):
     df = df.copy()
     
-    # 1. Moving Average
-    if strategy_type == "Moving Average":
+    if strategy_type == "Buy & Hold":
+        df['Position'] = 1
+
+    elif strategy_type == "MA Crossover":
         short_window = params.get('short_window', 20)
         long_window = params.get('long_window', 50)
         df['SMA_Short'] = df['Close'].rolling(window=short_window).mean()
         df['SMA_Long'] = df['Close'].rolling(window=long_window).mean()
         df['Position'] = np.where(df['SMA_Short'] > df['SMA_Long'], 1, 0)
 
-    # 2. Bollinger Bands
-    elif strategy_type == "Bollinger Bands":
+    elif strategy_type == "Momentum":
+        window = params.get('mom_window', 20)
+        df['ROC'] = df['Close'].pct_change(periods=window)
+        df['Position'] = np.where(df['ROC'] > 0, 1, 0)
+
+    elif strategy_type == "Mean Reversion":
         window = params.get('bb_window', 20)
         std_dev = params.get('bb_std', 2.0)
         df['SMA'] = df['Close'].rolling(window=window).mean()
@@ -112,23 +143,6 @@ def apply_strategies(df, strategy_type, params):
         df['Position'] = np.nan
         df.loc[df['Close'] < df['Lower'], 'Position'] = 1 
         df.loc[df['Close'] > df['Upper'], 'Position'] = 0 
-        df['Position'] = df['Position'].ffill().fillna(0)
-
-    # 3. RSI
-    elif strategy_type == "RSI":
-        window = params.get('rsi_window', 14)
-        overbought = params.get('rsi_overbought', 70)
-        oversold = params.get('rsi_oversold', 30)
-        
-        delta = df['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
-        rs = gain / loss
-        df['RSI'] = 100 - (100 / (1 + rs))
-        
-        df['Position'] = np.nan
-        df.loc[df['RSI'] < oversold, 'Position'] = 1
-        df.loc[df['RSI'] > overbought, 'Position'] = 0
         df['Position'] = df['Position'].ffill().fillna(0)
 
     else:
