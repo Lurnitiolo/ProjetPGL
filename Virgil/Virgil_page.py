@@ -33,7 +33,7 @@ def quant_b_ui():
             (pour garder les lignes fines), on utilise un sélecteur plus précis sinon laisse tel quel */
         </style>
                 
-                
+
     """, unsafe_allow_html=True)
 
     # --- 1. INITIALISATION DE LA MÉMOIRE ---
@@ -43,6 +43,8 @@ def quant_b_ui():
         st.session_state.tickers_analyzed = []
     if 'asset_settings' not in st.session_state:
         st.session_state.asset_settings = {}
+    if 'portfolio_weights' not in st.session_state:
+        st.session_state.portfolio_weights = {}
 
     # --- 2. CONFIGURATION (SIDEBAR) ---
     with st.sidebar:
@@ -54,9 +56,14 @@ def quant_b_ui():
         
         if st.button("🔄 Charger les données", use_container_width=True):
             with st.spinner("Chargement..."):
+                eq_val = round(100.0 / len(selected_tickers), 2) if selected_tickers else 0
+                st.session_state.portfolio_weights = {t: eq_val for t in selected_tickers}
                 data_dict = {}
                 for t in selected_tickers:
+                    st.session_state[f"slider_weight_{t}"] = eq_val
+                    st.session_state[f"num_weight_{t}"] = eq_val
                     df_raw = load_stock_data(t)
+                    
                     
                     # Initialisation des paramètres par défaut si l'actif est nouveau
                     if t not in st.session_state.asset_settings:

@@ -118,8 +118,8 @@ def render_portfolio_simulation(tickers, data_dict, cap_init):
                     letter-spacing: 0.5px;
                 }
                 .responsive-logo {
-                    width: 32px;
-                    height: 32px;
+                    width: 64px;
+                    height: 64px;
                     object-fit: contain;
                     filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5));
                 }
@@ -195,7 +195,7 @@ def render_portfolio_simulation(tickers, data_dict, cap_init):
 
                 with r1:
                     st.slider(
-                        f"S_{t}", 0.0, 100.0, 
+                        f"{t}", 0.0, 100.0, 
                         value=current_w,
                         key=f"slider_weight_{t}",
                         on_change=lambda ticker=t: st.session_state.portfolio_weights.update(
