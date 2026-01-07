@@ -30,15 +30,12 @@ def get_logo_url(ticker):
     
     return None
 
-# --- Test de l'affichage dans Streamlit ---
-ticker_test = "BTC-USD"
-url = get_logo_url(ticker_test)
-
-if url:
-    st.image(url, width=100)
-    st.write(f"Logo pour {ticker_test}")
-else:
-    st.write("Logo non trouvé.")
+    # --- Test de l'affichage dans Streamlit ---
+    if url:
+        st.image(url, width=100)
+        st.write(f"Logo pour {ticker_test}")
+    else:
+        st.write("Logo non trouvé.")
 
 
 

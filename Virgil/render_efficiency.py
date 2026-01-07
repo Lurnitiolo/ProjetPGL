@@ -9,11 +9,16 @@ def min_max_scale(series):
     if series.max() == series.min(): return series * 0
     return (series - series.min()) / (series.max() - series.min())
 
+
+def apply_preset_callback(new_weights):
+    """Met à jour le session_state AVANT le rendu des widgets"""
+    for t, val in new_weights.items():
+        st.session_state[f"w_{t}"] = val
+        st.session_state[f"slide_{t}"] = val
+
 @st.fragment
 def render_portfolio_simulation(tickers, data_dict, cap_init):
-    # --- 1. BOUTONS DE PRESETS ---
-    c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 1])
-    
+    # --- 1. PRÉ-CALCUL DES STATS ---
     stats = {}
     for t in tickers:
         p_ret, p_mdd = calculate_metrics(data_dict[t]['Strat_Momentum'])
@@ -25,47 +30,39 @@ def render_portfolio_simulation(tickers, data_dict, cap_init):
             'sharpe': p_ret / vol if vol > 0 else 0
         }
 
-    # Logique des boutons
-    if c1.button("⚖️ Equal Weight"):
-        val = round(100.0 / len(tickers), 2)
-        for t in tickers:
-            st.session_state[f"w_{t}"] = val
-            st.session_state[f"slide_{t}"] = val
-        st.rerun(scope="fragment")
+    # --- PRÉPARATION DES DONNÉES DE PRESETS ---
+    # On calcule les poids ici pour pouvoir les passer aux callbacks des boutons (haut et bas)
+    presets = {}
+    
+    # Equal Weight
+    eq_val = round(100.0 / len(tickers), 2)
+    presets['eq'] = {t: eq_val for t in tickers}
+    
+    # Risk Parity
+    total_inv_vol = sum(1/s['vol'] for s in stats.values())
+    presets['rp'] = {t: round(((1/stats[t]['vol']) / total_inv_vol) * 100, 2) for t in tickers}
+    
+    # Min Drawdown
+    total_inv_mdd = sum(1/s['mdd'] for s in stats.values())
+    presets['md'] = {t: round(((1/stats[t]['mdd']) / total_inv_mdd) * 100, 2) for t in tickers}
+    
+    # Top Perf
+    pos_rets = {t: max(0, stats[t]['ret']) for t in tickers}
+    total_pos = sum(pos_rets.values())
+    presets['tp'] = {t: (round((pos_rets[t] / total_pos) * 100, 2) if total_pos > 0 else eq_val) for t in tickers}
+    
+    # Sharpe
+    pos_sharpe = {t: max(0, stats[t]['sharpe']) for t in tickers}
+    total_sharpe = sum(pos_sharpe.values())
+    presets['sr'] = {t: (round((pos_sharpe[t] / total_sharpe) * 100, 2) if total_sharpe > 0 else eq_val) for t in tickers}
 
-    if c2.button("🛡️ Risk Parity"):
-        total_inv_vol = sum(1/s['vol'] for s in stats.values())
-        for t in tickers:
-            val = round(((1/stats[t]['vol']) / total_inv_vol) * 100, 2)
-            st.session_state[f"w_{t}"] = val
-            st.session_state[f"slide_{t}"] = val
-        st.rerun(scope="fragment")
-
-    if c3.button("📉 Min Drawdown"):
-        total_inv_mdd = sum(1/s['mdd'] for s in stats.values())
-        for t in tickers:
-            val = round(((1/stats[t]['mdd']) / total_inv_mdd) * 100, 2)
-            st.session_state[f"w_{t}"] = val
-            st.session_state[f"slide_{t}"] = val
-        st.rerun(scope="fragment")
-
-    if c4.button("🚀 Top Perf"):
-        pos_rets = {t: max(0, stats[t]['ret']) for t in tickers}
-        total_pos = sum(pos_rets.values())
-        for t in tickers:
-            val = round((pos_rets[t] / total_pos) * 100, 2) if total_pos > 0 else round(100/len(tickers), 2)
-            st.session_state[f"w_{t}"] = val
-            st.session_state[f"slide_{t}"] = val
-        st.rerun(scope="fragment")
-
-    if c5.button("💎 Sharpe Ratio"):
-        pos_sharpe = {t: max(0, stats[t]['sharpe']) for t in tickers}
-        total_sharpe = sum(pos_sharpe.values())
-        for t in tickers:
-            val = round((pos_sharpe[t] / total_sharpe) * 100, 2) if total_sharpe > 0 else round(100/len(tickers), 2)
-            st.session_state[f"w_{t}"] = val
-            st.session_state[f"slide_{t}"] = val
-        st.rerun(scope="fragment")
+    # --- BOUTONS DU HAUT ---
+    c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 1])
+    c1.button("⚖️ Equal Weight", on_click=apply_preset_callback, args=(presets['eq'],), key="btn_eq_top")
+    c2.button("🛡️ Risk Parity", on_click=apply_preset_callback, args=(presets['rp'],), key="btn_rp_top")
+    c3.button("📉 Min Drawdown", on_click=apply_preset_callback, args=(presets['md'],), key="btn_md_top")
+    c4.button("🚀 Top Perf", on_click=apply_preset_callback, args=(presets['tp'],), key="btn_tp_top")
+    c5.button("💎 Sharpe Ratio", on_click=apply_preset_callback, args=(presets['sr'],), key="btn_sr_top")
 
     st.divider()
     
@@ -114,18 +111,59 @@ def render_portfolio_simulation(tickers, data_dict, cap_init):
 
     if total_w > 0:
         # --- 3. CALCULS ---
-        df_global = pd.DataFrame({t: data_dict[t]['Strat_Momentum'] for t in tickers}).dropna()
-        w_arr = np.array([weights[t] / total_w for t in tickers])
-        df_global['Portfolio_Value'] = df_global.dot(w_arr)
-        
-        port_return, port_mdd = calculate_metrics(df_global['Portfolio_Value'])
-        df_rets = pd.DataFrame({t: data_dict[t]['Strat_Returns'] for t in tickers}).dropna()
-        port_vol = df_rets.dot(w_arr).std() * np.sqrt(252)
+        # --- NOUVEAU BLOC DANS render_efficiency.py ---
 
-        with col_visual:
-            fig_pie = go.Figure(data=[go.Pie(labels=list(weights.keys()), values=list(weights.values()), hole=.5)])
-            fig_pie.update_layout(template="plotly_dark", height=350, showlegend=False, margin=dict(t=20, b=20))
-            st.plotly_chart(fig_pie, use_container_width=True, key="portfolio_pie_chart")
+# 1. Sélecteur de fréquence (juste avant les calculs)
+        rebalance_freq = st.selectbox(
+            "Fréquence de rééquilibrage du portefeuille",
+            ["Quotidien", "Hebdomadaire", "Mensuel", "Annuel", "Aucun (Buy & Hold)"],
+            index=2
+        )
+
+        # 2. Logique de calcul itérative
+        df_rets = pd.DataFrame({t: data_dict[t]['Strat_Returns'] for t in tickers}).dropna()
+        target_weights = np.array([weights[t] / total_w for t in tickers])
+
+        n_days = len(df_rets)
+        portfolio_values = np.zeros(n_days)
+        current_value = 1.0 
+        current_weights = target_weights.copy()
+
+        # Identification des dates de rééquilibrage
+        rebalance_dates = []
+        if rebalance_freq == "Hebdomadaire": rebalance_dates = df_rets.index[df_rets.index.weekday == 0]
+        elif rebalance_freq == "Mensuel": rebalance_dates = df_rets.index[df_rets.index.is_month_start]
+        elif rebalance_freq == "Annuel": rebalance_dates = df_rets.index[df_rets.index.is_year_start]
+
+        for i in range(n_days):
+            date = df_rets.index[i]
+            daily_rets = df_rets.iloc[i].values
+            
+            # Appliquer le rééquilibrage si nécessaire
+            if rebalance_freq not in ["Quotidien", "Aucun (Buy & Hold)"] and date in rebalance_dates:
+                current_weights = target_weights.copy()
+            
+            # Calcul de la valeur du jour
+            day_return = np.sum(current_weights * daily_rets)
+            current_value *= (1 + day_return)
+            portfolio_values[i] = current_value
+            
+            # Mise à jour des poids pour le lendemain (dérive du marché)
+            if rebalance_freq != "Quotidien":
+                asset_values = current_weights * (1 + daily_rets)
+                # On évite la division par zéro si tout s'effondre
+                sum_vals = np.sum(asset_values)
+                current_weights = asset_values / sum_vals if sum_vals != 0 else current_weights
+            else:
+                current_weights = target_weights.copy()
+
+        # Reconstruction de df_global pour la suite du code
+        df_global = pd.DataFrame(index=df_rets.index)
+        for t in tickers:
+            # On remet en base 1 pour l'affichage comparatif
+            df_global[t] = (1 + df_rets[t]).cumprod()
+
+        df_global['Portfolio_Value'] = portfolio_values
 
         # --- 4. GRAPHIQUE PERFORMANCE ---
         st.divider()
@@ -151,18 +189,9 @@ def render_portfolio_simulation(tickers, data_dict, cap_init):
         with c_mat:
             st.write("**Matrice de Corrélation (Carrée)**")
             corr_matrix = df_rets.corr()
-            fig_corr = go.Figure(data=go.Heatmap(
-                z=corr_matrix.values, x=corr_matrix.columns, y=corr_matrix.index,
-                colorscale='RdBu', zmin=-1, zmax=1,
-                text=np.round(corr_matrix.values, 2), texttemplate="%{text}"
-            ))
-            fig_corr.update_layout(
-                height=450, template="plotly_dark",
-                xaxis=dict(constrain="domain", fixedrange=True, showgrid=False, zeroline=False),
-                yaxis=dict(scaleanchor="x", scaleratio=1, constrain="domain", fixedrange=True, showgrid=False, zeroline=False),
-                margin=dict(t=10, b=10, l=10, r=10)
-            )
-            st.plotly_chart(fig_corr, use_container_width=True, key="portfolio_heatmap_square", config={'displayModeBar': False})
+            fig_corr = go.Figure(data=go.Heatmap(z=corr_matrix.values, x=corr_matrix.columns, y=corr_matrix.index, colorscale='RdBu', zmin=-1, zmax=1, text=np.round(corr_matrix.values, 2), texttemplate="%{text}"))
+            fig_corr.update_layout(height=450, template="plotly_dark", margin=dict(t=10, b=10, l=10, r=10), xaxis=dict(scaleanchor="y"), yaxis=dict(scaleanchor="x"))
+            st.plotly_chart(fig_corr, use_container_width=True, key="portfolio_heatmap_square")
 
         with c_comp:
             st.write("**Comparaison Risque vs Rendement**")
@@ -171,20 +200,16 @@ def render_portfolio_simulation(tickers, data_dict, cap_init):
                 ret_t, _ = calculate_metrics(data_dict[t]['Strat_Momentum'])
                 vol_t = data_dict[t]['Strat_Returns'].std() * np.sqrt(252)
                 comparison_data.append({'Name': t, 'Return': ret_t * 100, 'Vol': vol_t * 100, 'Type': 'Asset'})
-            
             comparison_data.append({'Name': 'PORTFOLIO', 'Return': port_return * 100, 'Vol': port_vol * 100, 'Type': 'Portfolio'})
             df_plot = pd.DataFrame(comparison_data)
 
-            v_max = df_plot['Vol'].max() * 1.3
-            r_max = df_plot['Return'].max() * 1.3
+            # --- RESTAURATION HEATMAP RISQUE/RENDEMENT ORIGINALE ---
+            v_max, r_max = df_plot['Vol'].max() * 1.3, df_plot['Return'].max() * 1.3
             r_min = df_plot['Return'].min() * 1.3 if df_plot['Return'].min() < 0 else -r_max * 0.2
             v_mid, r_mid = v_max / 2, (r_max + r_min) / 2
 
-            
             fig_risk_ret = go.Figure()
-
-            v_space = np.linspace(0, v_max, 25)
-            r_space = np.linspace(r_min, r_max, 25)
+            v_space, r_space = np.linspace(0, v_max, 25), np.linspace(r_min, r_max, 25)
             z = [[(r - v) for v in v_space] for r in r_space]
 
             fig_risk_ret.add_trace(go.Heatmap(
@@ -193,34 +218,37 @@ def render_portfolio_simulation(tickers, data_dict, cap_init):
                 showscale=False, hoverinfo='skip'
             ))
 
-            
-            # --- LA CROIX CENTRALE (+) ---
             fig_risk_ret.add_shape(type="line", x0=0, y0=r_mid, x1=v_max, y1=r_mid, line=dict(color="black", width=2), layer="below")
             fig_risk_ret.add_shape(type="line", x0=v_mid, y0=r_min, x1=v_mid, y1=r_max, line=dict(color="black", width=2), layer="below")
-            
 
-            # --- FLÈCHES ET LÉGENDES ---
             fig_risk_ret.add_annotation(xref="paper", yref="paper", x=-0.08, y=0.5, text="<b>RENDEMENT →</b>", showarrow=False, textangle=-90, font=dict(color="black"))
             fig_risk_ret.add_annotation(xref="paper", yref="paper", x=0.5, y=-0.12, text="<b>RISQUE (Volatilité) →</b>", showarrow=False, font=dict(color="black"))
 
-            # Points
+            # Points Actifs (Blancs)
             assets = df_plot[df_plot['Type'] == 'Asset']
             fig_risk_ret.add_trace(go.Scatter(x=assets['Vol'], y=assets['Return'], mode='markers+text', text=assets['Name'], textposition="top center",
                                               marker=dict(size=12, color='white', line=dict(width=1.5, color='black'))))
 
+            # Point Portfolio (Étoile Or)
             port_pt = df_plot[df_plot['Type'] == 'Portfolio']
             fig_risk_ret.add_trace(go.Scatter(x=port_pt['Vol'], y=port_pt['Return'], mode='markers+text', text=['PORTFOLIO'], textposition="bottom center",
                                               marker=dict(size=24, color='gold', symbol='star', line=dict(width=2, color='black'))))
 
-            # Flèches aux bouts de la croix
             fig_risk_ret.add_annotation(x=v_mid, y=r_max, ax=0, ay=25, xref="x", yref="y", showarrow=True, arrowhead=2, arrowcolor="black", arrowwidth=2)
             fig_risk_ret.add_annotation(x=v_max, y=r_mid, ax=-25, ay=0, xref="x", yref="y", showarrow=True, arrowhead=2, arrowcolor="black", arrowwidth=2)
 
             fig_risk_ret.update_layout(
                 height=500, template="plotly_white",
-                xaxis=dict(range=[0, v_max], fixedrange=True, showgrid=False, showticklabels=True, ticksuffix="%", zeroline=False, color="black"),
-                yaxis=dict(range=[r_min, r_max], fixedrange=True, showgrid=False, showticklabels=True, ticksuffix="%", zeroline=False, color="black"),
+                xaxis=dict(range=[0, v_max], showgrid=False, ticksuffix="%", color="black"),
+                yaxis=dict(range=[r_min, r_max], showgrid=False, ticksuffix="%", color="black"),
                 margin=dict(t=30, b=60, l=70, r=40), showlegend=False
             )
+            st.plotly_chart(fig_risk_ret, use_container_width=True, key="risk_ret_staticc", config={'displayModeBar': False})
 
-            st.plotly_chart(fig_risk_ret, use_container_width=True, key="risk_ret_static", config={'displayModeBar': False})
+            st.write("**Presets rapides (Bas) :**")
+            b1, b2, b3, b4, b5 = st.columns([1, 1, 1, 1, 1])
+            b1.button("⚖️ Equal Weight", on_click=apply_preset_callback, args=(presets['eq'],), key="btn_eq_bot")
+            b2.button("🛡️ Risk Parity", on_click=apply_preset_callback, args=(presets['rp'],), key="btn_rp_bot")
+            b3.button("📉 Min Drawdown", on_click=apply_preset_callback, args=(presets['md'],), key="btn_md_bot")
+            b4.button("🚀 Top Perf", on_click=apply_preset_callback, args=(presets['tp'],), key="btn_tp_bot")
+            b5.button("💎 Sharpe Ratio", on_click=apply_preset_callback, args=(presets['sr'],), key="btn_sr_bot")
