@@ -11,13 +11,24 @@ def min_max_scale(series):
 
 
 def apply_preset_callback(new_weights):
-    """Met à jour le session_state AVANT le rendu des widgets"""
+    # On met à jour le dictionnaire central utilisé par les widgets
+    if 'portfolio_weights' not in st.session_state:
+        st.session_state.portfolio_weights = {}
+    
     for t, val in new_weights.items():
-        st.session_state[f"w_{t}"] = val
-        st.session_state[f"slide_{t}"] = val
+        st.session_state.portfolio_weights[t] = float(val)
+        # On met aussi à jour les clés directes des widgets pour forcer l'affichage
+        st.session_state[f"slider_weight_{t}"] = float(val)
+        st.session_state[f"num_weight_{t}"] = float(val)
 
 @st.fragment
 def render_portfolio_simulation(tickers, data_dict, cap_init):
+
+    # 1. Initialisation de la mémoire des poids
+    if 'portfolio_weights' not in st.session_state:
+        eq_val = round(100.0 / len(tickers), 2)
+        st.session_state.portfolio_weights = {t: eq_val for t in tickers}
+    
     # --- 1. PRÉ-CALCUL DES STATS ---
     stats = {}
     for t in tickers:
@@ -65,190 +76,276 @@ def render_portfolio_simulation(tickers, data_dict, cap_init):
     c5.button("💎 Sharpe Ratio", on_click=apply_preset_callback, args=(presets['sr'],), key="btn_sr_top")
 
     st.divider()
+
     
-    # --- 2. RÉPARTITION DU CAPITAL (UI CORRIGÉE) ---
-    col_inputs, col_visual = st.columns([1.3, 1])
+    # --- 2. RÉPARTITION DU CAPITAL (UI AUTO-SCALÉE) ---
+    # On ajuste le ratio global : 1.5 pour les réglages, 1 pour la roue (pie chart)
+    col_inputs, col_visual = st.columns([1.5, 1])
     weights = {}
     
     with col_inputs:
-        st.write("**Répartition du capital**")
-        
-        # Injection CSS pour remonter les sliders et ajuster l'alignement
+        # --- STYLE CSS AVANCÉ (Look Léché & Pro) ---
         st.markdown("""
             <style>
-                div[data-testid="stSlider"] { margin-top: 11px; }
-                div[data-testid="stSlider"] label { display: none; }
+                /* Container principal de la ligne d'actif */
+                .asset-row {
+                    background: rgba(255, 255, 255, 0.03);
+                    border-radius: 8px;
+                    padding: 6px 12px;
+                    margin-bottom: 8px;
+                    border: 1px solid rgba(255, 255, 255, 0.05);
+                    transition: all 0.2s ease;
+                    display: flex;
+                    align-items: center;
+                }
+                .asset-row:hover {
+                    background: rgba(255, 255, 255, 0.06);
+                    border-color: rgba(0, 209, 255, 0.3);
+                }
+
+                /* Typographie et Logos */
+                .asset-info {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    min-width: 120px;
+                }
+                .ticker-name {
+                    font-weight: 700;
+                    font-family: 'Inter', sans-serif;
+                    
+                    font-size: 14px;
+                    letter-spacing: 0.5px;
+                }
+                .responsive-logo {
+                    width: 32px;
+                    height: 32px;
+                    object-fit: contain;
+                    filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5));
+                }
+
+                /* Customisation Sliders Streamlit */
+                div[data-testid="stSlider"] {
+                    padding-top: 0px !important;
+                    padding-bottom: 0px !important;
+                    margin-top: -15px !important; /* Alignement optique avec le texte */
+                }
+                
+                /* Customisation Input Numérique (Pill style) */
+                div[data-testid="stNumberInput"] {
+                    background: rgba(0, 0, 0, 0.2);
+                    border-radius: 6px;
+                }
+
+
+                /* Nettoyage des labels */
+                [data-testid='stSlider'] label, [data-testid='stNumberInput'] label {
+                    display: none !important;
+                }
+                
+                /* Header de section */
+                .section-header {
+                    color: #808495;
+                    text-transform: uppercase;
+                    font-size: 11px;
+                    font-weight: 700;
+                    letter-spacing: 1.2px;
+                    margin-bottom: 15px;
+                    display: block;
+                }
             </style>
         """, unsafe_allow_html=True)
 
+        st.markdown("<span class='section-header'>Configuration & Allocation</span>", unsafe_allow_html=True)
+        
+        # --- PARAMÈTRES DE SIMULATION (Design épuré) ---
+        with st.container(border=True):
+            c_p1, c_p2 = st.columns([2, 1])
+            with c_p1:
+                rebalance_freq = st.selectbox(
+                    "Fréquence de rééquilibrage",
+                    ["Quotidien", "Hebdomadaire", "Mensuel", "Annuel", "Aucun (Buy & Hold)"],
+                    index=2, help="Fréquence à laquelle le portefeuille revient aux poids cibles."
+                )
+            with c_p2:
+                fees_bps = st.number_input("Frais (bps)", 0, 100, 10, step=5) / 10000
+
+        st.write("") # Spacer
+
+        # --- BOUCLE DES ACTIFS (Look Terminal) ---
         for t in tickers:
-            if f"w_{t}" not in st.session_state: st.session_state[f"w_{t}"] = round(100.0/len(tickers), 2)
-            if f"slide_{t}" not in st.session_state: st.session_state[f"slide_{t}"] = st.session_state[f"w_{t}"]
-
-            def sync_to_num(ticker=t): st.session_state[f"w_{ticker}"] = st.session_state[f"slide_{ticker}"]
-            def sync_to_slide(ticker=t): st.session_state[f"slide_{ticker}"] = st.session_state[f"w_{ticker}"]
-
-            r0, r1, r2 = st.columns([0.8, 3, 1.2])
+            if t not in st.session_state.portfolio_weights:
+                st.session_state.portfolio_weights[t] = round(100.0 / len(tickers), 2)
             
-            with r0:
-                logo_url = get_logo_url(t)
-                st.markdown(f"""
-                    <div style="display: flex; align-items: center; height: 100%;">
-                        <img src="{logo_url if logo_url else ''}" style="width: 60px; height: auto; margin-right: 10px;">
-                        <b style="font-size: 14px;">{t}</b>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            with r1:
-                st.slider(f"Slider {t}", 0.0, 100.0, key=f"slide_{t}", on_change=sync_to_num, step=0.1)
+            current_w = float(st.session_state.portfolio_weights[t])
+            logo_url = get_logo_url(t)
 
-            with r2:
-                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-                weights[t] = st.number_input(f"v_{t}", label_visibility="collapsed", key=f"w_{t}", 
-                                             on_change=sync_to_slide, step=0.01, min_value=0.0)
+            # Container de ligne
+            with st.container():
+                # Utilisation de colonnes sans gap excessif via le CSS injecté
+                r0, r1, r2 = st.columns([1.5, 3, 0.8])
+                
+                with r0:
+                    st.markdown(f"""
+                        <div class="asset-info">
+                            <img src="{logo_url if logo_url else ''}" class="responsive-logo">
+                            <span class="ticker-name">{t}</span>
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                with r1:
+                    st.slider(
+                        f"S_{t}", 0.0, 100.0, 
+                        value=current_w,
+                        key=f"slider_weight_{t}",
+                        on_change=lambda ticker=t: st.session_state.portfolio_weights.update(
+                            {ticker: st.session_state[f"slider_weight_{ticker}"]}
+                        )
+                    )
+
+                with r2:
+                    weights[t] = st.number_input(
+                        f"", 0.0, 100.0, 
+                        value=current_w,
+                        key=f"num_weight_{t}",
+                        step=1.0,
+                        on_change=lambda ticker=t: st.session_state.portfolio_weights.update(
+                            {ticker: st.session_state[f"num_weight_{ticker}"]}
+                        )
+                    )
 
     total_w = sum(weights.values())
 
     if total_w > 0:
-        # --- 3. CALCULS ---
-        # --- NOUVEAU BLOC DANS render_efficiency.py ---
-
-# 1. Sélecteur de fréquence (juste avant les calculs)
-        rebalance_freq = st.selectbox(
-            "Fréquence de rééquilibrage du portefeuille",
-            ["Quotidien", "Hebdomadaire", "Mensuel", "Annuel", "Aucun (Buy & Hold)"],
-            index=2
-        )
-
-        # 2. Logique de calcul itérative
+        # --- 3. CALCULS DE LA SIMULATION ---
         df_rets = pd.DataFrame({t: data_dict[t]['Strat_Returns'] for t in tickers}).dropna()
         target_weights = np.array([weights[t] / total_w for t in tickers])
 
         n_days = len(df_rets)
         portfolio_values = np.zeros(n_days)
-        current_value = 1.0 
+        current_val = 1.0 
         current_weights = target_weights.copy()
-
-        # Identification des dates de rééquilibrage
-        rebalance_dates = []
-        if rebalance_freq == "Hebdomadaire": rebalance_dates = df_rets.index[df_rets.index.weekday == 0]
-        elif rebalance_freq == "Mensuel": rebalance_dates = df_rets.index[df_rets.index.is_month_start]
-        elif rebalance_freq == "Annuel": rebalance_dates = df_rets.index[df_rets.index.is_year_start]
+        current_val *= (1 - fees_bps) 
 
         for i in range(n_days):
             date = df_rets.index[i]
             daily_rets = df_rets.iloc[i].values
             
-            # Appliquer le rééquilibrage si nécessaire
-            if rebalance_freq not in ["Quotidien", "Aucun (Buy & Hold)"] and date in rebalance_dates:
+            do_rebalance = False
+            if rebalance_freq == "Quotidien": do_rebalance = True
+            elif rebalance_freq == "Hebdomadaire" and date.weekday() == 0: do_rebalance = True
+            elif rebalance_freq == "Mensuel" and i > 0 and date.month != df_rets.index[i-1].month: do_rebalance = True
+            elif rebalance_freq == "Annuel" and i > 0 and date.year != df_rets.index[i-1].year: do_rebalance = True
+
+            if do_rebalance and rebalance_freq != "Aucun (Buy & Hold)":
+                turnover = np.sum(np.abs(current_weights - target_weights))
+                current_val *= (1 - (turnover * fees_bps))
                 current_weights = target_weights.copy()
             
-            # Calcul de la valeur du jour
-            day_return = np.sum(current_weights * daily_rets)
-            current_value *= (1 + day_return)
-            portfolio_values[i] = current_value
+            current_val *= (1 + np.sum(current_weights * daily_rets))
+            portfolio_values[i] = current_val
             
-            # Mise à jour des poids pour le lendemain (dérive du marché)
             if rebalance_freq != "Quotidien":
-                asset_values = current_weights * (1 + daily_rets)
-                # On évite la division par zéro si tout s'effondre
-                sum_vals = np.sum(asset_values)
-                current_weights = asset_values / sum_vals if sum_vals != 0 else current_weights
-            else:
-                current_weights = target_weights.copy()
+                drift = current_weights * (1 + daily_rets)
+                current_weights = drift / np.sum(drift) if np.sum(drift) != 0 else target_weights
 
-        # Reconstruction de df_global pour la suite du code
-        df_global = pd.DataFrame(index=df_rets.index)
+        # --- 4. CALCUL DES VARIABLES DE METRIQUES ---
+        port_series = pd.Series(portfolio_values, index=df_rets.index)
+        port_return, port_mdd = calculate_metrics(port_series)
+        port_vol = port_series.pct_change().std() * np.sqrt(252)
+
+        # Préparation du DataFrame pour le graphique cumulé
+        df_plot_cum = pd.DataFrame(index=df_rets.index)
         for t in tickers:
-            # On remet en base 1 pour l'affichage comparatif
-            df_global[t] = (1 + df_rets[t]).cumprod()
+            df_plot_cum[t] = (1 + df_rets[t]).cumprod() * 100
+        df_plot_cum['Portfolio_Value'] = portfolio_values * 100
 
-        df_global['Portfolio_Value'] = portfolio_values
+        # --- 5. CRÉATION DES FIGURES ---
+        
+        # Figure Pie (Roue)
+        fig_pie = go.Figure(data=[go.Pie(labels=list(weights.keys()), values=list(weights.values()), hole=.5)])
+        fig_pie.update_layout(template="plotly_dark", autosize=True, showlegend=False, margin=dict(t=20, b=20, l=10, r=10))
 
-        # --- 4. GRAPHIQUE PERFORMANCE ---
-        st.divider()
+        # Figure Performance Globale
         fig_glob = go.Figure()
         for t in tickers:
             if weights[t] > 0:
-                fig_glob.add_trace(go.Scatter(x=df_global.index, y=df_global[t], name=f"Contrib: {t}", line=dict(width=3, dash='dot'), opacity=0.5))
+                fig_glob.add_trace(go.Scatter(x=df_plot_cum.index, y=df_plot_cum[t], name=f"Contrib: {t}", line=dict(width=1, dash='dot'), opacity=0.4))
         
-        fig_glob.add_trace(go.Scatter(x=df_global.index, y=df_global['Portfolio_Value'], name="MON PORTEFEUILLE", line=dict(color='gold', width=4)))
-        fig_glob.update_layout(height=450, title="Performance du Panier vs Actifs", template="plotly_dark", hovermode="x unified")
-        st.plotly_chart(fig_glob, use_container_width=True, key="portfolio_perf_main")
+        fig_glob.add_trace(go.Scatter(x=df_plot_cum.index, y=df_plot_cum['Portfolio_Value'], name="MON PORTEFEUILLE", line=dict(color='gold', width=4)))
+        fig_glob.update_layout(height=450, title="Performance du Panier vs Actifs (Base 100)", template="plotly_dark", hovermode="x unified")
+        # --- 6. AFFICHAGE (UI) ---
 
-        # Métriques colonnes
+        # A. On affiche la roue dans la colonne de droite (déjà définie en haut du script)
+        with col_visual:
+            st.plotly_chart(fig_pie, use_container_width=True, key="portfolio_pie_chart_unique")
+
+        # B. On affiche les métriques globales sur toute la largeur
+        st.write("**Statistiques Globales du Portefeuille (Net de frais)**")
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Rendement", f"{port_return:.2%}")
+        m1.metric("Rendement Net", f"{port_return:.2%}")
         m2.metric("Risque (MDD)", f"{port_mdd:.2%}")
         m3.metric("Volatilité Ann.", f"{port_vol:.2%}")
         m4.metric("Sharpe Ratio", f"{(port_return/port_vol):.2f}" if port_vol > 0 else "0.00")
 
+        # C. On affiche le grand graphique de performance
+        st.divider()
+        st.plotly_chart(fig_glob, use_container_width=True, key="portfolio_perf_main_unique")
+
+        # D. Matrice et Heatmap (En colonnes 50/50)
         st.divider()
         c_mat, c_comp = st.columns([1, 1])
-
+        
         with c_mat:
-            st.write("**Matrice de Corrélation (Carrée)**")
+            st.write("**Matrice de Corrélation**")
             corr_matrix = df_rets.corr()
-            fig_corr = go.Figure(data=go.Heatmap(z=corr_matrix.values, x=corr_matrix.columns, y=corr_matrix.index, colorscale='RdBu', zmin=-1, zmax=1, text=np.round(corr_matrix.values, 2), texttemplate="%{text}"))
+            fig_corr = go.Figure(data=go.Heatmap(
+                z=corr_matrix.values, x=corr_matrix.columns, y=corr_matrix.index,
+                colorscale='RdBu', zmin=-1, zmax=1,
+                text=np.round(corr_matrix.values, 2), texttemplate="%{text}"
+            ))
             fig_corr.update_layout(height=450, template="plotly_dark", margin=dict(t=10, b=10, l=10, r=10), xaxis=dict(scaleanchor="y"), yaxis=dict(scaleanchor="x"))
-            st.plotly_chart(fig_corr, use_container_width=True, key="portfolio_heatmap_square")
-
+            st.plotly_chart(fig_corr, use_container_width=True, key="portfolio_corr_matrix_unique")
+            
         with c_comp:
-            st.write("**Comparaison Risque vs Rendement**")
+            st.write("**Risque vs Rendement**")
+            # Données pour la heatmap Risk/Return
             comparison_data = []
             for t in tickers:
                 ret_t, _ = calculate_metrics(data_dict[t]['Strat_Momentum'])
                 vol_t = data_dict[t]['Strat_Returns'].std() * np.sqrt(252)
                 comparison_data.append({'Name': t, 'Return': ret_t * 100, 'Vol': vol_t * 100, 'Type': 'Asset'})
             comparison_data.append({'Name': 'PORTFOLIO', 'Return': port_return * 100, 'Vol': port_vol * 100, 'Type': 'Portfolio'})
-            df_plot = pd.DataFrame(comparison_data)
+            df_rr = pd.DataFrame(comparison_data)
 
-            # --- RESTAURATION HEATMAP RISQUE/RENDEMENT ORIGINALE ---
-            v_max, r_max = df_plot['Vol'].max() * 1.3, df_plot['Return'].max() * 1.3
-            r_min = df_plot['Return'].min() * 1.3 if df_plot['Return'].min() < 0 else -r_max * 0.2
+            # --- TON CODE HEATMAP OPTIMISÉ ---
+            v_max, r_max = df_rr['Vol'].max() * 1.3, df_rr['Return'].max() * 1.3
+            r_min = df_rr['Return'].min() * 1.3 if df_rr['Return'].min() < 0 else -r_max * 0.2
             v_mid, r_mid = v_max / 2, (r_max + r_min) / 2
+            v_s, r_s = np.linspace(0, v_max, 30), np.linspace(r_min, r_max, 30)
+            z_rr = [[(r - v) for v in v_s] for r in r_s]
 
-            fig_risk_ret = go.Figure()
-            v_space, r_space = np.linspace(0, v_max, 25), np.linspace(r_min, r_max, 25)
-            z = [[(r - v) for v in v_space] for r in r_space]
+            fig_rr = go.Figure()
+            fig_rr.add_trace(go.Heatmap(z=z_rr, x=v_s, y=r_s, colorscale=[[0, 'rgba(231, 76, 60, 0.8)'], [0.5, 'rgba(255, 251, 0, 0.4)'], [1, 'rgba(46, 204, 113, 0.8)']], showscale=False, hoverinfo='skip'))
+            fig_rr.add_shape(type="line", x0=0, y0=r_mid, x1=v_max, y1=r_mid, line=dict(color="black", width=2), layer="above")
+            fig_rr.add_shape(type="line", x0=v_mid, y0=r_min, x1=v_mid, y1=r_max, line=dict(color="black", width=2), layer="above")
+            
+            assets_rr = df_rr[df_rr['Type'] == 'Asset']
+            fig_rr.add_trace(go.Scatter(x=assets_rr['Vol'], y=assets_rr['Return'], mode='markers+text', text=assets_rr['Name'], textposition="top center", marker=dict(size=10, color='white', line=dict(width=1, color='black'))))
+            port_rr_pt = df_rr[df_rr['Type'] == 'Portfolio']
+            fig_rr.add_trace(go.Scatter(x=port_rr_pt['Vol'], y=port_rr_pt['Return'], mode='markers+text', text=['<b>PORTFOLIO</b>'], textposition="bottom center", marker=dict(size=20, color='gold', symbol='star', line=dict(width=1, color='black'))))
+            
+            fig_rr.update_layout(height=450, template="plotly_white", margin=dict(t=10, b=40, l=40, r=10), showlegend=False, xaxis=dict(ticksuffix="%"), yaxis=dict(ticksuffix="%"))
+            st.plotly_chart(fig_rr, use_container_width=True, key="portfolio_risk_return_unique")
 
-            fig_risk_ret.add_trace(go.Heatmap(
-                z=z, x=v_space, y=r_space,
-                colorscale=[[0, 'rgba(231, 76, 60, 1)'], [0.5, 'rgba(255, 251, 0, 0.6)'], [1, 'rgba(46, 204, 113, 1)']],
-                showscale=False, hoverinfo='skip'
-            ))
+        # --- 7. BOUTONS DE PRESETS DU BAS ---
+            st.write("**Appliquer un Preset d'Optimisation rapide :**")
+            b_c1, b_c2, b_c3, b_c4, b_c5 = st.columns(5)
+            b_c1.button("⚖️ EQ", on_click=apply_preset_callback, args=(presets['eq'],), key="preset_eq_bot")
+            b_c2.button("🛡️ RP", on_click=apply_preset_callback, args=(presets['rp'],), key="preset_rp_bot")
+            b_c3.button("📉 MD", on_click=apply_preset_callback, args=(presets['md'],), key="preset_md_bot")
+            b_c4.button("🚀 TP", on_click=apply_preset_callback, args=(presets['tp'],), key="preset_tp_bot")
+            b_c5.button("💎 SR", on_click=apply_preset_callback, args=(presets['sr'],), key="preset_sr_bot")
 
-            fig_risk_ret.add_shape(type="line", x0=0, y0=r_mid, x1=v_max, y1=r_mid, line=dict(color="black", width=2), layer="below")
-            fig_risk_ret.add_shape(type="line", x0=v_mid, y0=r_min, x1=v_mid, y1=r_max, line=dict(color="black", width=2), layer="below")
-
-            fig_risk_ret.add_annotation(xref="paper", yref="paper", x=-0.08, y=0.5, text="<b>RENDEMENT →</b>", showarrow=False, textangle=-90, font=dict(color="black"))
-            fig_risk_ret.add_annotation(xref="paper", yref="paper", x=0.5, y=-0.12, text="<b>RISQUE (Volatilité) →</b>", showarrow=False, font=dict(color="black"))
-
-            # Points Actifs (Blancs)
-            assets = df_plot[df_plot['Type'] == 'Asset']
-            fig_risk_ret.add_trace(go.Scatter(x=assets['Vol'], y=assets['Return'], mode='markers+text', text=assets['Name'], textposition="top center",
-                                              marker=dict(size=12, color='white', line=dict(width=1.5, color='black'))))
-
-            # Point Portfolio (Étoile Or)
-            port_pt = df_plot[df_plot['Type'] == 'Portfolio']
-            fig_risk_ret.add_trace(go.Scatter(x=port_pt['Vol'], y=port_pt['Return'], mode='markers+text', text=['PORTFOLIO'], textposition="bottom center",
-                                              marker=dict(size=24, color='gold', symbol='star', line=dict(width=2, color='black'))))
-
-            fig_risk_ret.add_annotation(x=v_mid, y=r_max, ax=0, ay=25, xref="x", yref="y", showarrow=True, arrowhead=2, arrowcolor="black", arrowwidth=2)
-            fig_risk_ret.add_annotation(x=v_max, y=r_mid, ax=-25, ay=0, xref="x", yref="y", showarrow=True, arrowhead=2, arrowcolor="black", arrowwidth=2)
-
-            fig_risk_ret.update_layout(
-                height=500, template="plotly_white",
-                xaxis=dict(range=[0, v_max], showgrid=False, ticksuffix="%", color="black"),
-                yaxis=dict(range=[r_min, r_max], showgrid=False, ticksuffix="%", color="black"),
-                margin=dict(t=30, b=60, l=70, r=40), showlegend=False
-            )
-            st.plotly_chart(fig_risk_ret, use_container_width=True, key="risk_ret_staticc", config={'displayModeBar': False})
-
-            st.write("**Presets rapides (Bas) :**")
-            b1, b2, b3, b4, b5 = st.columns([1, 1, 1, 1, 1])
-            b1.button("⚖️ Equal Weight", on_click=apply_preset_callback, args=(presets['eq'],), key="btn_eq_bot")
-            b2.button("🛡️ Risk Parity", on_click=apply_preset_callback, args=(presets['rp'],), key="btn_rp_bot")
-            b3.button("📉 Min Drawdown", on_click=apply_preset_callback, args=(presets['md'],), key="btn_md_bot")
-            b4.button("🚀 Top Perf", on_click=apply_preset_callback, args=(presets['tp'],), key="btn_tp_bot")
-            b5.button("💎 Sharpe Ratio", on_click=apply_preset_callback, args=(presets['sr'],), key="btn_sr_bot")
+    else:
+        st.warning("Allouez du capital pour activer la simulation.")
