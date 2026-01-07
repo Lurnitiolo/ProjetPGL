@@ -1,29 +1,44 @@
 import yfinance as yf
 import pandas as pd
+import streamlit as st
 
 def get_logo_url(ticker):
-    # Mapping manuel pour les domaines connus
+    # Mapping manuel pour les domaines boursiers
     domains = {
-        "AAPL": "apple.com", "MSFT": "microsoft.com", "GOOGL": "google.com",
-        "AMZN": "amazon.com", "TSLA": "tesla.com", "EURUSD=X": "ecb.europa.eu"
+        "AAPL": "apple.com", 
+        "MSFT": "microsoft.com", 
+        "GOOGL": "google.com",
+        "AMZN": "amazon.com", 
+        "TSLA": "tesla.com", 
+        "EURUSD=X": "ecb.europa.eu"
     }
     
-    # Gestion des Cryptos (ex: BTC-USD -> btc)
-    if "BTC-USD" in ticker:
+    # Gestion des Cryptos (ex: BTC-USD)
+    # On utilise une source directe pour les icônes crypto (GitHub de spothq est très fiable)
+    if "-USD" in ticker:
         symbol = ticker.split("-")[0].lower()
-        return f"https://www.flaticon.com/fr/icone-gratuite/bitcoin_3985686?term=bitcoin&page=1&position=2&origin=tag&related_id=3985686"
+        return f"https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/{symbol}.png"
     
-    # Gestion de l'Or (Gold)
+    # Gestion de l'Or (Gold) - Lien direct vers l'image PNG
     if ticker == "GC=F":
         return "https://cdn-icons-png.flaticon.com/512/272/272530.png"
     
-
-    # Utilisation du service Google Favicon (très stable)
+    # Utilisation du service Google Favicon pour les actions
     domain = domains.get(ticker)
     if domain:
         return f"https://www.google.com/s2/favicons?domain={domain}&sz=128"
     
     return None
+
+# --- Test de l'affichage dans Streamlit ---
+ticker_test = "BTC-USD"
+url = get_logo_url(ticker_test)
+
+if url:
+    st.image(url, width=100)
+    st.write(f"Logo pour {ticker_test}")
+else:
+    st.write("Logo non trouvé.")
 
 
 
