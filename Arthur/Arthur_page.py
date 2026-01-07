@@ -18,51 +18,41 @@ except ImportError:
 st.set_page_config(page_title="Quant Dashboard", page_icon="💠", layout="wide")
 
 # ==============================================================================
-# HELPER FONCTION : L'ASTUCE NATIVE
+# HELPER : GROS CHIFFRES NATIFS (CLEAN)
 # ==============================================================================
 def show_big_number(label, value, fmt="{:.2%}", color_cond="neutral"):
-    """
-    Affiche un gros chiffre coloré sans CSS, juste avec du Markdown natif.
-    color_cond : 'green_if_pos', 'red_if_neg', 'inverse', 'neutral'
-    """
-    # 1. Formatage de la valeur
     val_str = fmt.format(value)
-    
-    # 2. Choix de la couleur (Syntaxe native Streamlit :green[], :red[])
-    color = "" # Par défaut blanc/gris (thème)
+    color = "" 
     
     if color_cond == "green_if_pos":
         if value > 0: color = ":green"
         elif value < 0: color = ":red"
-    elif color_cond == "red_if_pos": # Pour le Drawdown par exemple (proche de 0 c'est mieux)
-        # Drawdown est négatif. Si on veut que -1% soit vert et -50% rouge.
-        # Logique standard : Drawdown = Rouge
+    elif color_cond == "red_if_neg":
         color = ":red"
-    elif color_cond == "inverse": # Pour la vol (moins c'est mieux)
-        # Ici on laisse neutre souvent, ou vert si très bas
-        color = "" 
-    elif color_cond == "green_bool": # Pour WinRate > 50%
+    elif color_cond == "green_bool": 
         color = ":green" if value > 0.5 else ":red"
     elif color_cond == "always_blue":
         color = ":blue"
         
-    # 3. Affichage
-    # On affiche le label en petit (caption) ou gras
     st.markdown(f"**{label}**")
-    # On affiche la valeur en GROS TITRE (##) avec la couleur
     if color:
         st.markdown(f"## {color}[{val_str}]")
     else:
         st.markdown(f"## {val_str}")
 
-
-def render_dashboard_clean(df_strat, metrics, ticker, asset_name, strat_name, params):
+# ==============================================================================
+# RENDERING PRINCIPAL
+# ==============================================================================
+def render_dashboard_risk_v2(df_strat, metrics, ticker, asset_name, strat_name, params):
     
-    # ==============================================================================
-    # 1. HEADER
-    # ==============================================================================
+    # --------------------------------------------------------------------------
+    # 1. TITRE GLOBAL
+    # --------------------------------------------------------------------------
     st.markdown("### 💠 Single Asset Analysis")
 
+    # --------------------------------------------------------------------------
+    # 2. ASSET INFOS
+    # --------------------------------------------------------------------------
     with st.container(border=True):
         col_name, col_price, col_void = st.columns([1.5, 1, 2])
         
@@ -74,47 +64,141 @@ def render_dashboard_clean(df_strat, metrics, ticker, asset_name, strat_name, pa
         with col_name:
             st.title(asset_name)
             st.caption(f"Ticker Symbol: **{ticker}**")
-        
         with col_price:
-            # Pour le PRIX, st.metric reste le meilleur car le format "Delta" est standard
             st.metric("Market Price", f"{last_price:.2f} €", f"{var_abs:+.2f} ({var_pct:+.2%})")
 
-    # ==============================================================================
-    # 2. ASSET OVERVIEW (MODIFIÉ : GROS CHIFFRES DIRECTS)
-    # ==============================================================================
-    st.markdown("#### 🏦 Asset Overview (Buy & Hold)")
-    
+    # --------------------------------------------------------------------------
+    # 3. ASSET OVERVIEW
+    # --------------------------------------------------------------------------
+    st.markdown("#### 🏦 Asset Overview")
     with st.container(border=True):
         c1, c2, c3, c4 = st.columns(4)
-        
-        # Total Return : Vert si positif, Rouge si négatif
-        with c1:
-            show_big_number("Total Return", metrics['BuyHold_Return'], color_cond="green_if_pos")
-            
-        # Volatilité : Neutre (Blanc)
-        with c2:
-            show_big_number("Volatility", metrics['BuyHold_Vol'], color_cond="neutral")
-            
-        # Max Drawdown : Rouge (Car c'est une perte)
-        with c3:
-            show_big_number("Max Drawdown", metrics['BuyHold_MDD'], color_cond="red_if_pos")
-            
-        # Sharpe : Bleu
-        with c4:
-            show_big_number("Sharpe Ratio", metrics['BuyHold_Sharpe'], fmt="{:.2f}", color_cond="always_blue")
+        with c1: show_big_number("Total Return", metrics['BuyHold_Return'], color_cond="green_if_pos")
+        with c2: show_big_number("Volatility", metrics['BuyHold_Vol'], color_cond="neutral")
+        with c3: show_big_number("Max Drawdown", metrics['BuyHold_MDD'], color_cond="red_if_neg")
+        with c4: show_big_number("Sharpe Ratio", metrics['BuyHold_Sharpe'], fmt="{:.2f}", color_cond="always_blue")
 
-    # ==============================================================================
-    # 3. STRATEGY PLOT
-    # ==============================================================================
-    st.markdown("#### 📡 Strategy Simulation")
+    # --------------------------------------------------------------------------
+    # 4. RISK ANALYSIS (AVEC TOGGLE ET COULEURS)
+    # --------------------------------------------------------------------------
+    st.markdown("#### ⚠️ Risk Analysis")
+
+    returns_series = df_strat['Close'].pct_change().dropna()
+    confidence_level = 0.95
+    var_95 = np.percentile(returns_series, (1 - confidence_level) * 100)
+    es_95 = returns_series[returns_series <= var_95].mean()
     
+    with st.container(border=True):
+        # A. Métriques
+        r1, r2, r3 = st.columns(3)
+        with r1: show_big_number("VaR (95%)", var_95, color_cond="neutral") 
+        with r2: show_big_number("Expected Shortfall (95%)", es_95, color_cond="neutral")
+        with r3: show_big_number("Worst Day", returns_series.min(), color_cond="red_if_neg")
+            
+        st.divider()
+        
+        # B. Préparation des Données pour le Plot
+        
+        # Série 1 : Chronologique (Dates)
+        chron_data = []
+        for date, val in returns_series.items():
+            # Couleur : Vert si > 0, Rouge si < 0
+            color = "#238636" if val >= 0 else "#da3633"
+            chron_data.append({
+                "value": [date.strftime('%Y-%m-%d'), round(float(val), 4)],
+                "itemStyle": {"color": color}
+            })
+
+        # Série 2 : Triée (S-Curve)
+        # On trie les valeurs
+        sorted_ret = returns_series.sort_values().tolist()
+        sorted_data = []
+        for i, val in enumerate(sorted_ret):
+            color = "#238636" if val >= 0 else "#da3633"
+            # L'axe X est juste un index (0, 1, 2, ...)
+            sorted_data.append({
+                "value": [i, round(float(val), 4)],
+                "itemStyle": {"color": color}
+            })
+
+        # C. Configuration ECharts Double Axe
+        risk_option = {
+            "backgroundColor": "#0e1117",
+            "tooltip": {"trigger": "axis"},
+            "legend": {
+                "show": True,
+                "data": ["Chronological", "Sorted Distribution"],
+                "top": "0%",
+                "textStyle": {"color": "#e6edf3"},
+                # Par défaut, on sélectionne 'Chronological' et on désélectionne 'Sorted'
+                # L'utilisateur clique pour inverser
+                "selected": {
+                    "Chronological": True,
+                    "Sorted Distribution": False
+                }
+            },
+            "grid": {"left": "3%", "right": "3%", "bottom": "10%", "top": "15%"},
+            
+            # DEUX AXES X SUPERPOSÉS
+            "xAxis": [
+                {
+                    "type": "category", 
+                    "data": returns_series.index.strftime('%Y-%m-%d').tolist(), 
+                    "gridIndex": 0,
+                    "show": True # Axe des dates visible par défaut
+                },
+                {
+                    "type": "category",
+                    # Pas de labels pour le trié, juste l'échelle
+                    "show": False, 
+                    "gridIndex": 0
+                }
+            ],
+            "yAxis": {
+                "type": "value", 
+                "splitLine": {"show": True, "lineStyle": {"color": "#30363d", "type": "dashed"}},
+            },
+            "series": [
+                {
+                    "name": "Chronological",
+                    "type": "bar",
+                    "xAxisIndex": 0, # Utilise l'axe des dates
+                    "data": chron_data,
+                    "barWidth": "60%",
+                    "markLine": {
+                        "symbol": "none",
+                        "data": [{"yAxis": round(float(var_95), 4)}],
+                        "lineStyle": {"color": "#e6edf3", "type": "dashed", "width": 2},
+                        "label": {"formatter": f"VaR: {var_95:.2%}", "color": "#e6edf3"}
+                    }
+                },
+                {
+                    "name": "Sorted Distribution",
+                    "type": "bar", # Bar chart rend mieux qu'une ligne pour voir la densité couleur
+                    "xAxisIndex": 1, # Utilise l'axe caché (index)
+                    "data": sorted_data,
+                    "barWidth": "100%", # Collé pour faire un effet de surface
+                    "markLine": {
+                        "symbol": "none",
+                        "data": [{"yAxis": round(float(var_95), 4)}],
+                        "lineStyle": {"color": "#e6edf3", "type": "dashed", "width": 2},
+                         "label": {"formatter": f"VaR: {var_95:.2%}", "color": "#e6edf3"}
+                    }
+                }
+            ]
+        }
+        st_echarts(options=risk_option, height="350px")
+
+    # --------------------------------------------------------------------------
+    # 5. STRATEGY SIMULATION
+    # --------------------------------------------------------------------------
+    st.markdown("#### 📡 Strategy Simulation")
     param_txt = "  •  ".join([f"**{k}**: {v}" for k,v in params.items()])
     st.info(f"**Strategy Running**: {strat_name}  —  Settings: {param_txt}")
 
     with st.container(border=True):
         dates = df_strat.index.strftime('%Y-%m-%d').tolist()
         data_k = [[round(float(r['Open']),2), round(float(r['Close']),2), round(float(r['Low']),2), round(float(r['High']),2)] for _, r in df_strat.iterrows()]
-        
         line_col = 'Sim_Active' if 'Sim_Active' in df_strat.columns else 'Strat_Active'
         data_line = [round(float(x), 2) for x in df_strat[line_col]]
 
@@ -132,48 +216,37 @@ def render_dashboard_clean(df_strat, metrics, ticker, asset_name, strat_name, pa
         }
         st_echarts(options=option, height="450px")
 
-    # ==============================================================================
-    # 4. COMPARISON & EXECUTION
-    # ==============================================================================
+    # --------------------------------------------------------------------------
+    # 6. PERFORMANCE & EXECUTION
+    # --------------------------------------------------------------------------
     st.markdown("#### ⚔️ Performance & Execution")
-    
     col_comp, col_exec = st.columns([1.5, 1])
     
-    # --- A. TABLEAU COMPARATIF ---
     with col_comp:
         with st.container(border=True):
             st.markdown("##### 📊 Strategy vs Benchmark")
-            
-            # Ici st.metric est BIEN parce qu'on VEUT voir le Delta (la différence)
-            # C'est le seul endroit où le "petit truc en dessous" est utile : il montre la sur-performance.
             m1, m2 = st.columns(2)
             m3, m4 = st.columns(2)
             
-            # Return
             s_ret = metrics['Active_Return']
             d_ret = s_ret - metrics['BuyHold_Return']
             m1.metric("Total Return (Strategy)", f"{s_ret:+.2%}", f"{d_ret:+.2%} vs Asset")
             
-            # Sharpe
             s_sh = metrics['Active_Sharpe']
             d_sh = s_sh - metrics['BuyHold_Sharpe']
             m2.metric("Sharpe Ratio", f"{s_sh:.2f}", f"{d_sh:+.2f} vs Asset")
             
-            # Drawdown
             s_mdd = metrics['Active_MDD']
             d_mdd = s_mdd - metrics['BuyHold_MDD']
             m3.metric("Max Drawdown", f"{s_mdd:.2%}", f"{d_mdd:+.2%} vs Asset")
             
-            # Volatility (Inverse color logic manually applied via delta_color if needed, but standard is fine)
             s_vol = metrics['Active_Vol']
             d_vol = s_vol - metrics['BuyHold_Vol']
             m4.metric("Volatility", f"{s_vol:.2%}", f"{d_vol:+.2%} vs Asset", delta_color="inverse")
 
-    # --- B. EXECUTION STATS (MODIFIÉ : GROS CHIFFRES DIRECTS) ---
     with col_exec:
         with st.container(border=True):
             st.markdown("##### ⚡ Trade Execution")
-            
             k1, k2 = st.columns(2)
             k3, k4 = st.columns(2)
             
@@ -181,20 +254,11 @@ def render_dashboard_clean(df_strat, metrics, ticker, asset_name, strat_name, pa
             win_rate = metrics.get('Active_WinRate', 0)
             avg_ret = (metrics['Active_Return'] / nb_trades) if nb_trades > 0 else 0
             
-            with k1:
-                show_big_number("Trades", nb_trades, fmt="{}", color_cond="neutral")
-            
-            with k2:
-                # Win Rate : Vert si > 50%
-                show_big_number("Win Rate", win_rate, color_cond="green_bool")
-                
-            with k3:
-                 # Avg Return : Vert si > 0
-                show_big_number("Avg Ret/Trade", avg_ret, color_cond="green_if_pos")
-            
-            with k4:
-                # Espace vide ou autre métrique
-                st.write("")
+            with k1: show_big_number("Trades", nb_trades, fmt="{}", color_cond="neutral")
+            with k2: show_big_number("Win Rate", win_rate, color_cond="green_bool")
+            with k3: show_big_number("Avg Ret/Trade", avg_ret, color_cond="green_if_pos")
+            with k4: st.write("")
+
 
 # ==============================================================================
 # MAIN LOGIC
@@ -254,9 +318,10 @@ def quant_a_ui():
                 base_idx_val = df_strat.loc[first_valid, 'Strat_Active']
                 df_strat['Sim_Active'] = (df_strat['Strat_Active'] / base_idx_val) * strat_start
                 
-                # --- APPEL DE LA FONCTION NETTOYÉE ---
-                render_dashboard_clean(df_strat, metrics, ticker, selected_name, strategy_type, params)
+                # RENDER
+                render_dashboard_risk_v2(df_strat, metrics, ticker, selected_name, strategy_type, params)
 
+                # RAW DATA
                 with st.expander("🗃️ View Raw Data"):
                     st.dataframe(df_strat.sort_index(ascending=False), use_container_width=True)
 
