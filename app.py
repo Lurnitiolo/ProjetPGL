@@ -4,6 +4,7 @@ import os
 from Arthur import Arthur_page
 from Arthur.daily_report import generate_report
 from Virgil import Virgil_page
+import requests
 
 # ==============================================================================
 # 1. PAGE CONFIGURATION
@@ -199,7 +200,7 @@ if selected_tab == "🏠 Home":
 
     st.write("")
 
-    # --- BLOCK 3: AUTOMATED DAILY REPORT (CRON) ---
+# --- BLOCK 3: AUTOMATED DAILY REPORT (CRON) ---
     st.markdown("#### 📅 Automated Daily Report (Cron Job)")
     
     with st.container(border=True):
@@ -208,27 +209,23 @@ if selected_tab == "🏠 Home":
         It scans the entire asset universe to compute daily metrics.
         """)
         
-        report_path = "reports/daily_report_latest.csv"
+        data = requests.get("http://13.36.172.93:5000/api/daily_report").json()
+        df_report = pd.DataFrame(data["data"])
+            
+        st.dataframe(
+            df_report.style.format({
+                "Close Price": "{:.2f} €/$",
+                "Daily Perf": "{:+.2%}",
+                "Volatility (30d)": "{:.2%}",
+                "Max Drawdown (1y)": "{:.2%}"
+            }).background_gradient(subset=["Daily Perf"], cmap="RdYlGn", vmin=-0.05, vmax=0.05),
+            use_container_width=True,
+            hide_index=True
+        )
         
-        if os.path.exists(report_path):
-            df_report = pd.read_csv(report_path)
-            
-            st.dataframe(
-                df_report.style.format({
-                    "Close Price": "{:.2f} €/$",
-                    "Daily Perf": "{:+.2%}",
-                    "Volatility (30d)": "{:.2%}",
-                    "Max Drawdown (1y)": "{:.2%}"
-                }).background_gradient(subset=["Daily Perf"], cmap="RdYlGn", vmin=-0.05, vmax=0.05),
-                use_container_width=True,
-                hide_index=True
-            )
-            
-            if not df_report.empty and 'Last Update' in df_report.columns:
-                last_update = df_report['Last Update'].iloc[0]
-                st.caption(f"✅ Last successful run: {last_update}")
-        else:
-            st.warning("⚠️ No daily report found. The Cron Job might not have run yet (Wait for 8pm).")
+        if not df_report.empty and 'Last Update' in df_report.columns:
+            last_update = df_report['Last Update'].iloc[0]
+            st.caption(f"✅ Last successful run: {last_update}")
 
 elif selected_tab == "🔎 Single Asset Analysis":
     Arthur_page.quant_a_ui()

@@ -3,16 +3,14 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from streamlit_echarts import st_echarts
+from .strategies import AVAILABLE_ASSETS, apply_strategies, predict_ml_model
+from .data_loader import load_stock_data
 
 # ==============================================================================
 # 1. GESTION ROBUSTE DES IMPORTS
 # ==============================================================================
 # On définit d'abord les valeurs par défaut au cas où tout plante
 AVAILABLE_ASSETS = {"Airbus": "AIR.PA", "LVMH": "MC.PA", "TotalEnergies": "TTE.PA", "Apple": "AAPL"}
-
-def load_stock_data(*args, **kwargs): return None
-def apply_strategies(*args, **kwargs): return pd.DataFrame(), {}
-def predict_ml_model(*args, **kwargs): return pd.DataFrame()
 
 # On essaie d'importer les modules correctement
 try:
