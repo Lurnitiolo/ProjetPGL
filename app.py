@@ -4,6 +4,25 @@ import os
 from Arthur import Arthur_page
 from Virgil import Virgil_page
 
+
+# Gestion robuste des imports pour éviter le ModuleNotFoundError
+try:
+    # 1. Tentative d'import via le package Virgil (quand lancé depuis app.py)
+    from Virgil.data_loader import load_stock_data, get_logo_url
+    from Virgil.strategies import apply_strategies, calculate_metrics
+    from Virgil.render_efficiency import min_max_scale, render_portfolio_simulation, apply_preset_callback
+except ImportError:
+    try:
+        # 2. Tentative d'import direct (quand lancé depuis le dossier Virgil)
+        from data_loader import load_stock_data, get_logo_url
+        from strategies import apply_strategies, calculate_metrics
+        from render_efficiency import min_max_scale, render_portfolio_simulation, apply_preset_callback
+    except ImportError:
+        # 3. Tentative d'import relatif (sécurité supplémentaire)
+        from .data_loader import load_stock_data, get_logo_url
+        from .strategies import apply_strategies, calculate_metrics
+        from .render_efficiency import min_max_scale, render_portfolio_simulation, apply_preset_callback
+
 # ==============================================================================
 # 1. PAGE CONFIGURATION
 # ==============================================================================
