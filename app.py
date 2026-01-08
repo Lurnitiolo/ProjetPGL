@@ -188,13 +188,13 @@ if selected_tab == "🏠 Home":
         with st.container(border=True):
             st.markdown("#### 🌐 Multi Asset Analysis")
             st.markdown("""
-            *(Work in Progress)*
-            Portfolio Optimization based on Markowitz Theory.
-            * Correlation Matrix.
-            * Efficient Frontier.
-            * Min Variance / Max Sharpe Optimization.
+                Deep dive analysis of a portfolio of financial assets.
+                * **Configuration and detail:** by Asset.
+                * **Scoreboard::** benchmark.
+                * **Interactive Simulation**.
+                * **Risk Management & Diversification analysis:** Drawndown, Risk Contribution, Portfolio VaR Analysis.
             """)
-            st.warning("🚧 Under Construction")
+            st.write("➡️ *Go to 'Multi Asset Analysis' tab.*")
 
     st.write("")
 
