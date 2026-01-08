@@ -1,12 +1,12 @@
+from waitress import serve
 import flask
 import os
 
 app = flask.Flask(__name__)
-app.config["DEBUG"] = True
 
 @app.route('/', methods=['GET'])
 def home():
-    return "main page"
+    return "Main page"
 
 @app.route("/api/daily_report", methods=['GET'])
 def daily_report():
@@ -19,4 +19,6 @@ def daily_report():
     else:
         return "Report not found."
 
-app.run()
+if __name__ == "__main__":
+    print("Application lancée sur le port 5000...")
+    serve(app, host='0.0.0.0', port=5000)
