@@ -112,25 +112,23 @@ def style_dataframe(df):
 # ==============================================================================
 # RENDERING PRINCIPAL
 # ==============================================================================
-def render_dashboard_final_v18(df_strat, metrics, ticker, asset_name, strat_name, params, pred_days, model_lags):
+
+def render_dashboard(df_strat, metrics, ticker, asset_name, strat_name, params, pred_days, model_lags):
     
-    # 1. HEADER (Avec Logo)
+    # 1. HEADER
     st.markdown("### 🔎 Single Asset Analysis")
     with st.container(border=True):
         col_logo, col_name, col_price, col_void = st.columns([0.4, 1.5, 1, 1.5])
         
-        last_price = df_strat['Close'].iloc[-1]
-        prev_price = df_strat['Close'].iloc[-2]
+        last_price = float(df_strat['Close'].iloc[-1])
+        prev_price = float(df_strat['Close'].iloc[-2])
         var_abs = last_price - prev_price
         var_pct = (last_price / prev_price) - 1
         
-        with col_logo:
-            st.image(get_logo_url(ticker), width=70)
-        
+        with col_logo: st.image(get_logo_url(ticker), width=70)
         with col_name:
             st.markdown(f"## **{asset_name}**")
             st.caption(f"Ticker: **{ticker}**")
-            
         with col_price:
             st.metric("Market Price", f"{last_price:.2f} €", f"{var_abs:+.2f} ({var_pct:+.2%})")
 
@@ -146,64 +144,93 @@ def render_dashboard_final_v18(df_strat, metrics, ticker, asset_name, strat_name
     # 3. RISK ANALYSIS
     st.markdown("#### 📉 Risk Analysis")
     returns_series = df_strat['Close'].pct_change().dropna()
-    confidence_level = 0.95
-    var_95 = np.percentile(returns_series, (1 - confidence_level) * 100)
-    es_95 = returns_series[returns_series <= var_95].mean()
+    var_95 = float(np.percentile(returns_series, 5))
+    es_95 = float(returns_series[returns_series <= var_95].mean())
     
     with st.container(border=True):
         r1, r2, r3 = st.columns(3)
         with r1: show_big_number("VaR (95%)", var_95, color_cond="neutral") 
         with r2: show_big_number("Expected Shortfall (95%)", es_95, color_cond="neutral")
-        with r3: show_big_number("Worst Day", returns_series.min(), color_cond="red_if_neg")
+        with r3: show_big_number("Worst Day", float(returns_series.min()), color_cond="red_if_neg")
         st.divider()
         
-        # Risk Colors: Red if <= VaR, Green if > 0, Orange if < 0 but > VaR
-        chron_data = []
-        for date, val in returns_series.items():
-            color = "#da3633" if val <= var_95 else "#238636" if val >= 0 else "#4B4B4B"
-            chron_data.append({"value": [date.strftime('%Y-%m-%d'), val], "itemStyle": {"color": color}})
-
+        chron_data = [{"value": [d.strftime('%Y-%m-%d'), float(v)], "itemStyle": {"color": "#da3633" if v <= var_95 else "#238636" if v >= 0 else "#4B4B4B"}} for d, v in returns_series.items()]
         sorted_ret = returns_series.sort_values().tolist()
-        sorted_data = []
-        for i, val in enumerate(sorted_ret):
-            color = "#da3633" if val <= var_95 else "#238636" if val >= 0 else "#4B4B4B"
-            sorted_data.append({"value": [i, val], "itemStyle": {"color": color}})
+        sorted_data = [{"value": [i, float(v)], "itemStyle": {"color": "#da3633" if v <= var_95 else "#238636" if v >= 0 else "#4B4B4B"}} for i, v in enumerate(sorted_ret)]
 
         risk_option = {
             "backgroundColor": "#0e1117", "tooltip": {"trigger": "axis"},
-            "legend": {"show": True, "data": ["Daily Returns", "Sorted Distribution"], "top": "0%", "textStyle": {"color": "#8b949e"}, "selectedMode": "single", "selected": {"Daily Returns": True, "Sorted Distribution": False}},
+            "legend": {"show": True, "data": ["Daily Returns", "Sorted Distribution"], "top": 0, "textStyle": {"color": "#8b949e"}, "selectedMode": "single"},
             "grid": {"left": "3%", "right": "3%", "bottom": "10%", "top": "15%"},
-            "xAxis": [{"type": "category", "data": returns_series.index.strftime('%Y-%m-%d').tolist(), "gridIndex": 0, "show": True}, {"type": "category", "show": False, "gridIndex": 0}],
+            "xAxis": [{"type": "category", "data": returns_series.index.strftime('%Y-%m-%d').tolist(), "show": True}, {"type": "category", "show": False}],
             "yAxis": {"type": "value", "scale": True, "splitLine": {"show": True, "lineStyle": {"color": "#30363d", "type": "dashed"}}},
             "series": [
-                {"name": "Daily Returns", "type": "bar", "xAxisIndex": 0, "data": chron_data, "barWidth": "60%", "markLine": {"symbol": "none", "data": [{"yAxis": var_95}], "lineStyle": {"color": "#e6edf3", "type": "dashed", "width": 2}, "label": {"formatter": f"VaR: {var_95:.2%}", "color": "#e6edf3"}}},
-                {"name": "Sorted Distribution", "type": "bar", "xAxisIndex": 1, "data": sorted_data, "barWidth": "100%", "markLine": {"symbol": "none", "data": [{"yAxis": var_95}], "lineStyle": {"color": "#e6edf3", "type": "dashed", "width": 2}, "label": {"formatter": f"VaR: {var_95:.2%}", "color": "#e6edf3"}}}
+                {"name": "Daily Returns", "type": "bar", "data": chron_data, "markLine": {"symbol": "none", "data": [{"yAxis": var_95}], "lineStyle": {"color": "#e6edf3", "type": "dashed"}}},
+                {"name": "Sorted Distribution", "type": "bar", "xAxisIndex": 1, "data": sorted_data, "markLine": {"symbol": "none", "data": [{"yAxis": var_95}], "lineStyle": {"color": "#e6edf3", "type": "dashed"}}}
             ]
         }
         st_echarts(options=risk_option, height="350px")
 
-    # 4. STRATEGY SIMULATION
+    # 4. STRATEGY SIMULATION (TRADE MARKERS OPACITY)
+    # ==========================================================================
     st.markdown("#### ⚙️ Strategy Simulation")
-    param_txt = "  •  ".join([f"**{k}**: {v}" for k,v in params.items()])
-    st.info(f"**Strategy Running**: {strat_name}  —  Settings: {param_txt}")
+    param_txt = " • ".join([f"**{k}**: {v}" for k,v in params.items()])
+    st.info(f"**Strategy Running**: {strat_name} — Settings: {param_txt}")
 
     with st.container(border=True):
+        col_graph_title, col_graph_toggle = st.columns([3, 1])
+        with col_graph_title: st.write("")
+        with col_graph_toggle: show_trades = st.toggle("Show Trade Markers", value=True)
+
         dates = df_strat.index.strftime('%Y-%m-%d').tolist()
         data_k = [[round(float(r['Open']),2), round(float(r['Close']),2), round(float(r['Low']),2), round(float(r['High']),2)] for _, r in df_strat.iterrows()]
         line_col = 'Sim_Active' if 'Sim_Active' in df_strat.columns else 'Strat_Active'
         data_line = [round(float(x), 2) for x in df_strat[line_col]]
 
+        series_list = [
+            {"name": "Asset", "type": "candlestick", "data": data_k, "itemStyle": {"color": "#238636", "color0": "#da3633", "borderColor": "#238636", "borderColor0": "#da3633"}},
+            {"name": "Strategy", "type": "line", "data": data_line, "smooth": True, "showSymbol": False, "lineStyle": {"color": "#58a6ff", "width": 2}}
+        ]
+
+        # --- LOGIQUE MARQUEURS AVEC OPACITÉ ---
+        if show_trades:
+            df_strat['Signal'] = df_strat['Position'].diff().fillna(0)
+            buys = df_strat[df_strat['Signal'] > 0]
+            sells = df_strat[df_strat['Signal'] < 0]
+            
+            buy_data = []
+            for d, r in buys.iterrows():
+                d_str = d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d)
+                buy_data.append([d_str, float(r['Low']) * 0.98])
+
+            sell_data = []
+            for d, r in sells.iterrows():
+                d_str = d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d)
+                sell_data.append([d_str, float(r['High']) * 1.02])
+
+            if buy_data:
+                series_list.append({
+                    "name": "Buy Signal", "type": "scatter", "symbol": "triangle", "symbolSize": 15,
+                    # VERT avec Opacité 0.7
+                    "itemStyle": {"color": "#00ff00", "opacity": 0.7}, 
+                    "data": buy_data, "z": 10
+                })
+            if sell_data:
+                series_list.append({
+                    "name": "Sell Signal", "type": "scatter", "symbol": "triangle", "symbolRotate": 180, "symbolSize": 15,
+                    # ROUGE avec Opacité 0.7
+                    "itemStyle": {"color": "#ff0000", "opacity": 0.7}, 
+                    "data": sell_data, "z": 10
+                })
+
         option = {
             "backgroundColor": "#0e1117", "tooltip": {"trigger": "axis", "axisPointer": {"type": "cross"}},
-            "legend": {"show": True, "data": ["Asset", "Strategy"], "top": "0%", "right": "2%", "textStyle": {"color": "#e6edf3"}},
+            "legend": {"show": True, "data": ["Asset", "Strategy", "Buy Signal", "Sell Signal"], "top": "0%", "textStyle": {"color": "#e6edf3"}},
             "grid": {"left": "3%", "right": "3%", "bottom": "15%", "top": "15%"},
             "xAxis": {"type": "category", "data": dates, "scale": True},
             "yAxis": {"scale": True, "splitLine": {"show": True, "lineStyle": {"color": "#30363d", "type": "dashed"}}},
             "dataZoom": [{"type": "inside"}, {"show": True, "type": "slider", "top": "90%"}],
-            "series": [
-                {"name": "Asset", "type": "candlestick", "data": data_k, "itemStyle": {"color": "#238636", "color0": "#da3633", "borderColor": "#238636", "borderColor0": "#da3633"}},
-                {"name": "Strategy", "type": "line", "data": data_line, "smooth": True, "showSymbol": False, "lineStyle": {"color": "#58a6ff", "width": 2}}
-            ]
+            "series": series_list
         }
         st_echarts(options=option, height="450px")
 
@@ -226,33 +253,63 @@ def render_dashboard_final_v18(df_strat, metrics, ticker, asset_name, strat_name
         with st.container(border=True):
             st.markdown("##### ⏱️ Trade Execution")
             k1, k2 = st.columns(2); k3, k4 = st.columns(2)
-            nb_trades = metrics.get('Active_Trades', 0); win_rate = metrics.get('Active_WinRate', 0)
-            avg_ret = (metrics['Active_Return'] / nb_trades) if nb_trades > 0 else 0
+            nb_trades = int(metrics.get('Active_Trades', 0))
+            win_rate = float(metrics.get('Active_WinRate', 0))
+            avg_ret = float((metrics['Active_Return'] / nb_trades)) if nb_trades > 0 else 0
             with k1: show_big_number("Trades", nb_trades, fmt="{}", color_cond="neutral")
             with k2: show_big_number("Win Rate", win_rate, color_cond="green_bool")
             with k3: show_big_number("Avg Ret/Trade", avg_ret, color_cond="green_if_pos")
             with k4: st.write("")
 
-    # 6. FORECASTING
+    # 6. FORECASTING (AVEC BACKGROUND MODIFIÉ)
+    # ==========================================================================
     st.markdown(f"#### 🧠 Price Forecasting ({pred_days} days | Random Forest)")
     pred_df = predict_ml_model(df_strat, days_ahead=pred_days, n_lags=model_lags)
     
     hist_subset = df_strat
     hist_dates = hist_subset.index.strftime('%Y-%m-%d').tolist()
     pred_dates = pred_df.index.strftime('%Y-%m-%d').tolist()
-    
-    hist_k_data = [[round(float(r['Open']),2), round(float(r['Close']),2), round(float(r['Low']),2), round(float(r['High']),2)] for _, r in hist_subset.iterrows()]
-    last_val = hist_subset['Close'].iloc[-1]
-    
-    pred_line = [last_val] + [round(x, 2) for x in pred_df['Prediction'].values]
-    upper_line = [last_val] + [round(x, 2) for x in pred_df['Upper'].values]
-    lower_line = [last_val] + [round(x, 2) for x in pred_df['Lower'].values]
-    
     all_dates = hist_dates + pred_dates
+    
+    last_val = float(df_strat['Close'].iloc[-1])
     padding = [None] * (len(hist_dates) - 1)
     
+    pred_vals = [float(x) for x in pred_df['Prediction'].values]
+    upper_vals = [float(x) for x in pred_df['Upper'].values]
+    lower_vals = [float(x) for x in pred_df['Lower'].values]
+    
+    pred_line = [last_val] + pred_vals
+    upper_line = [last_val] + upper_vals
+    lower_line = [last_val] + lower_vals
+    
+    hist_k_data = [[round(float(r['Open']),2), round(float(r['Close']),2), round(float(r['Low']),2), round(float(r['High']),2)] for _, r in hist_subset.iterrows()]
+    
+    # --- ZONE DE FORECAST (BACKGROUND) ---
+    # On définit une zone qui couvre toute la partie "Prédiction"
+    # Couleur : Bleu très léger transparent pour indiquer la "Forecast Zone"
+    mark_area_data = [
+        [
+            {"xAxis": hist_dates[-1]}, # Start: Dernier jour historique
+            {"xAxis": pred_dates[-1]}  # End: Fin prédiction
+        ]
+    ]
+
     s_hist = {"name": "Historical", "type": "candlestick", "data": hist_k_data, "itemStyle": {"color": "#238636", "color0": "#da3633", "borderColor": "#238636", "borderColor0": "#da3633"}}
-    s_pred = {"name": "Random Forest Forecast", "type": "line", "data": padding + pred_line, "showSymbol": False, "lineStyle": {"color": "#58a6ff", "width": 3}, "markArea": {"silent": True, "itemStyle": {"color": "rgba(88, 166, 255, 0.1)"}, "data": [[{"xAxis": hist_dates[-1]}, {"xAxis": pred_dates[-1]}]]}}
+    
+    s_pred = {
+        "name": "Random Forest Forecast", 
+        "type": "line", 
+        "data": padding + pred_line, 
+        "showSymbol": False, 
+        "lineStyle": {"color": "#58a6ff", "width": 3},
+        # CHANGEMENT DU BACKGROUND ICI via MarkArea
+        "markArea": {
+            "silent": True,
+            "itemStyle": {"color": "rgba(58, 166, 255, 0.08)"}, # Fond bleuté léger
+            "data": mark_area_data
+        }
+    }
+    
     s_upper = {"name": "Bull Case (95%)", "type": "line", "data": padding + upper_line, "showSymbol": False, "lineStyle": {"color": "#3fb950", "type": "dashed", "width": 1}}
     s_lower = {"name": "Bear Case (5%)", "type": "line", "data": padding + lower_line, "showSymbol": False, "lineStyle": {"color": "#f85149", "type": "dashed", "width": 1}}
 
@@ -269,96 +326,111 @@ def render_dashboard_final_v18(df_strat, metrics, ticker, asset_name, strat_name
     with st.container(border=True):
         st_echarts(options=forecast_option, height="400px")
         c1, c2, c3 = st.columns(3)
-        final_pred = pred_df['Prediction'].iloc[-1]
-        final_ret = (final_pred - last_price) / last_price
+        final_pred = float(pred_df['Prediction'].iloc[-1])
+        final_ret = (final_pred - last_val) / last_val
         with c1: st.metric("Predicted Price", f"{final_pred:.2f} €", f"{final_ret:+.2%}")
-        with c2: st.caption(f"📉 **Lower Bound:** {pred_df['Lower'].iloc[-1]:.2f} €")
-        with c3: st.caption(f"📈 **Upper Bound:** {pred_df['Upper'].iloc[-1]:.2f} €")
+        with c2: st.caption(f"📉 **Lower Bound:** {float(pred_df['Lower'].iloc[-1]):.2f} €")
+        with c3: st.caption(f"📈 **Upper Bound:** {float(pred_df['Upper'].iloc[-1]):.2f} €")
+        
+    # --- 7. DATASET DISPLAY (AJOUT DEMANDÉ) ---
+    st.write("---")
+    st.markdown("#### 📋 Detailed Data View")
+    
+    with st.container(border=True):
+        # On trie pour voir les données les plus récentes en premier
+        df_display = df_strat.sort_index(ascending=False)
+        
+        # On applique le style (couleurs) et on affiche
+        st.dataframe(
+            style_dataframe(df_display),
+            use_container_width=True,
+            height=400 # Hauteur fixe pour scroller dedans
+        )
 
 # ==============================================================================
 # MAIN LOGIC
 # ==============================================================================
+
 def quant_a_ui():
     with st.sidebar:
-        st.markdown("## 🎛️ **Dashboard Config**")
-        st.divider()
-        st.markdown("### 1️⃣ Asset Selection")
+        # Titre simple, natif, sans fond bizarre
+        st.header("⚙️ Config")
         
-        # --- CORRECTION DU BUG KEYERROR : NONE ---
-        # Si la liste est vide (import raté), on met une liste de secours
+        # 1. ASSET
+        # On utilise st.caption ou du gras pour que ça ne fasse pas un "bloc"
+        st.write("---")
+        st.markdown("**1️⃣ Asset Selection**")
+        
         options_list = list(AVAILABLE_ASSETS.keys())
-        if not options_list:
-            options_list = ["Error loading assets"]
+        if not options_list: options_list = ["Error"]
             
-        selected_name = st.selectbox("Ticker Symbol", options=options_list, label_visibility="collapsed")
+        selected_name = st.selectbox("Ticker", options=options_list, label_visibility="collapsed")
         
-        # Sécurité : Si l'utilisateur n'a rien sélectionné ou si on est en mode erreur
-        if not selected_name or selected_name == "Error loading assets":
-            st.error("Aucun actif disponible. Vérifiez les imports.")
-            st.stop() # Arrête l'exécution ici pour éviter le crash
+        if not selected_name or selected_name == "Error":
+            st.error("Stop")
+            st.stop()
             
         ticker = AVAILABLE_ASSETS[selected_name]
-        # ----------------------------------------
+
+        # 2. STRATEGY
+        st.write("---")
+        st.markdown("**2️⃣ Strategy Logic**")
         
-        st.divider()
-        st.markdown("### 2️⃣ Strategy Logic")
         strategy_type = st.selectbox("Method", ["Buy & Hold", "MA Crossover", "Momentum", "Mean Reversion"], label_visibility="collapsed")
+        
         params = {}
         if strategy_type == "MA Crossover":
-            st.caption("Moving Average Periods")
-            params['short_window'] = st.slider("⚡ Fast MA (Days)", 5, 100, 20)
-            params['long_window'] = st.slider("🐢 Slow MA (Days)", 20, 300, 50)
-            if params['short_window'] >= params['long_window']: st.warning("⚠️ Fast MA should be < Slow MA")
+            st.caption("Moving Average Settings")
+            params['short_window'] = st.slider("Fast MA", 5, 100, 20)
+            params['long_window'] = st.slider("Slow MA", 20, 300, 50)
+            if params['short_window'] >= params['long_window']:
+                st.warning("⚠️ Fast < Slow required")
+                
         elif strategy_type == "Momentum":
-            st.caption("Trend Following")
-            params['mom_window'] = st.slider("📅 Lookback Period (Days)", 10, 252, 20)
+            params['mom_window'] = st.slider("Lookback (Days)", 10, 252, 20)
+            
         elif strategy_type == "Mean Reversion":
-            st.caption("Bollinger Bands Settings")
-            params['bb_window'] = st.slider("⏳ BB Period", 10, 100, 20)
-            params['bb_std'] = st.slider("sigma Standard Deviation", 1.0, 4.0, 2.0, step=0.1)
-        st.divider()
-        st.markdown("### 3️⃣ Timeframe")
+            params['bb_window'] = st.slider("BB Period", 10, 100, 20)
+            params['bb_std'] = st.slider("Std Dev", 1.0, 4.0, 2.0)
+
+        # 3. TIMEFRAME
+        st.write("---")
+        st.markdown("**3️⃣ Timeframe**")
+        
         c1, c2 = st.columns(2)
-        with c1: period = st.selectbox("History", ["1y", "2y", "5y", "max"], index=1, label_visibility="collapsed")
-        with c2: interval = st.selectbox("Step", ["1d", "1wk", "1mo"], index=0, label_visibility="collapsed")
-        st.divider()
-        st.markdown("### 🔮 Forecast")
-        pred_days = st.slider("Horizon (Days)", 5, 90, 30)
-        model_lags = st.slider("Model Context (Past Days)", 5, 60, 20)
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("▶️ Start Analysis", use_container_width=True, type="primary"):
-            st.session_state.show_analysis = True
+        with c1: 
+            period = st.selectbox("Period", ["1y", "2y", "5y", "max"], index=1, label_visibility="collapsed")
+        with c2: 
+            interval = st.selectbox("Interval", ["1d", "1wk"], index=0, label_visibility="collapsed")
 
-    if 'show_analysis' not in st.session_state:
-        st.session_state.show_analysis = False
+        # 4. FORECAST
+        st.write("---")
+        st.markdown("**🔮 Forecast Settings**")
+        
+        pred_days = st.slider("Horizon (Days)", 10, 90, 30)
+        model_lags = st.slider("Context (Lags)", 5, 60, 20)
+        
+        st.write("") # Petit espace
+        if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
+            st.session_state.run_algo = True
 
-    if st.session_state.show_analysis:
-        with st.spinner('Calculating Alpha... 🧠'):
-            df = load_stock_data(ticker, period=period, interval=interval)
-            if df is not None and not df.empty:
-                min_lookback = 0
-                if strategy_type == "MA Crossover": min_lookback = params['long_window']
-                elif strategy_type == "Momentum": min_lookback = params['mom_window']
-                elif strategy_type == "Mean Reversion": min_lookback = params['bb_window']
-                if len(df) < min_lookback:
-                    st.error(f"⚠️ Not enough data! (Need {min_lookback} periods, got {len(df)})")
-                    st.stop()
-
-                df_strat, metrics = apply_strategies(df, strategy_type, params)
-                first_valid = df_strat['Position'].first_valid_index()
-                if first_valid is None:
-                    st.warning("⚠️ Strategy logic yielded no trades with current settings.")
-                    st.stop()
+    # --- EXECUTION ---
+    if st.session_state.get('run_algo', False):
+        df = load_stock_data(ticker, period=period, interval=interval)
+        if df is not None and not df.empty:
+            df_strat, metrics = apply_strategies(df, strategy_type, params)
+            
+            first_idx = df_strat['Position'].first_valid_index()
+            if first_idx:
+                base_val = float(df_strat.loc[first_idx, 'Strat_Active'])
+                start_price = float(df_strat.loc[first_idx, 'Close'])
+                df_strat['Sim_Active'] = (df_strat['Strat_Active'] / base_val) * start_price
                 
-                strat_start = df_strat.loc[first_valid, 'Close']
-                base_idx_val = df_strat.loc[first_valid, 'Strat_Active']
-                df_strat['Sim_Active'] = (df_strat['Strat_Active'] / base_idx_val) * strat_start
-                
-                render_dashboard_final_v18(df_strat, metrics, ticker, selected_name, strategy_type, params, pred_days, model_lags)
-
-                with st.expander("🗃️ View Full Dataset"):
-                    st.dataframe(style_dataframe(df_strat.sort_index(ascending=False)), use_container_width=True)
+                # Affiche le dashboard
+                render_dashboard(df_strat, metrics, ticker, selected_name, strategy_type, params, pred_days, model_lags)
             else:
-                st.error("❌ No data found.")
+                st.warning("Strategy inactive (no signals).")
+        else:
+            st.error("No data available.")
     else:
-        st.info("👈 Please select an asset and click Start Analysis.")
+        st.info("👈 Select an asset and click Run Analysis.")
