@@ -4,19 +4,62 @@ import numpy as np
 from datetime import datetime
 from streamlit_echarts import st_echarts
 
-# --- IMPORTS LOCAUX ---
+# ==============================================================================
+# 1. GESTION ROBUSTE DES IMPORTS
+# ==============================================================================
+# On définit d'abord les valeurs par défaut au cas où tout plante
+AVAILABLE_ASSETS = {"Airbus": "AIR.PA", "LVMH": "MC.PA", "TotalEnergies": "TTE.PA", "Apple": "AAPL"}
+
+def load_stock_data(*args, **kwargs): return None
+def apply_strategies(*args, **kwargs): return pd.DataFrame(), {}
+def predict_ml_model(*args, **kwargs): return pd.DataFrame()
+
+# On essaie d'importer les modules correctement
 try:
+    # Tentative 1 : Import relatif (si lancé depuis un module parent comme app.py)
     from .data_loader import load_stock_data
     from .strategies import AVAILABLE_ASSETS, apply_strategies, predict_ml_model
 except ImportError:
-    st.warning("⚠️ Modules locaux introuvables.")
-    AVAILABLE_ASSETS = {"Airbus": "AIR.PA", "LVMH": "MC.PA"}
-    def load_stock_data(*args, **kwargs): return None
-    def apply_strategies(*args, **kwargs): return pd.DataFrame(), {}
-    def predict_ml_model(*args, **kwargs): return pd.DataFrame()
+    try:
+        # Tentative 2 : Import absolu (si lancé directement dans le dossier)
+        from data_loader import load_stock_data
+        from strategies import AVAILABLE_ASSETS, apply_strategies, predict_ml_model
+    except ImportError:
+        # Si tout échoue, on garde les fonctions vides définies au début et on affiche une alerte
+        st.warning("⚠️ Impossible de charger 'strategies.py' ou 'data_loader.py'. Mode dégradé activé.")
 
 # --- CONFIG PAGE ---
-st.set_page_config(page_title="Quant Dashboard", page_icon="📊", layout="wide")
+# Note: set_page_config doit être la première commande Streamlit
+# Si app.py l'a déjà fait, cette ligne sera ignorée (ce qui est bien)
+try:
+    st.set_page_config(page_title="Quant Dashboard", page_icon="📊", layout="wide")
+except:
+    pass
+
+# ==============================================================================
+# HELPER : LOGOS & URLS
+# ==============================================================================
+def get_logo_url(ticker):
+    """Récupère l'URL du logo en fonction du Ticker"""
+    domains = {
+        "MC.PA": "lvmh.com", "TTE.PA": "totalenergies.com", "AIR.PA": "airbus.com",
+        "BNP.PA": "group.bnpparibas", "SAN.PA": "sanofi.com",
+        "AAPL": "apple.com", "MSFT": "microsoft.com", "TSLA": "tesla.com", "NVDA": "nvidia.com",
+        "SPY": "ssga.com", "CW8.PA": "amundi.com", "QQQ": "invesco.com", "GLD": "spdrgoldshares.com"
+    }
+    
+    if "-USD" in ticker:
+        symbol = ticker.split("-")[0].lower()
+        return f"https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/{symbol}.png"
+    
+    if ticker in ["GC=F", "GLD"] and ticker not in domains:
+        return "https://cdn-icons-png.flaticon.com/512/272/272530.png"
+    
+    domain = domains.get(ticker)
+    if domain:
+        return f"https://www.google.com/s2/favicons?domain={domain}&sz=128"
+    
+    return "https://cdn-icons-png.flaticon.com/512/4256/4256900.png"
 
 # ==============================================================================
 # HELPER : GROS CHIFFRES UNIFIÉS
@@ -69,24 +112,30 @@ def style_dataframe(df):
 # ==============================================================================
 # RENDERING PRINCIPAL
 # ==============================================================================
-def render_dashboard_final_v16(df_strat, metrics, ticker, asset_name, strat_name, params, pred_days, model_lags):
+def render_dashboard_final_v18(df_strat, metrics, ticker, asset_name, strat_name, params, pred_days, model_lags):
     
-    # 1. HEADER
-    st.markdown("### 🔎 Single Asset Analysis") # Loupe pour l'analyse
+    # 1. HEADER (Avec Logo)
+    st.markdown("### 🔎 Single Asset Analysis")
     with st.container(border=True):
-        col_name, col_price, col_void = st.columns([1.5, 1, 2])
+        col_logo, col_name, col_price, col_void = st.columns([0.4, 1.5, 1, 1.5])
+        
         last_price = df_strat['Close'].iloc[-1]
         prev_price = df_strat['Close'].iloc[-2]
         var_abs = last_price - prev_price
         var_pct = (last_price / prev_price) - 1
+        
+        with col_logo:
+            st.image(get_logo_url(ticker), width=70)
+        
         with col_name:
-            st.title(asset_name)
-            st.caption(f"Ticker Symbol: **{ticker}**")
+            st.markdown(f"## **{asset_name}**")
+            st.caption(f"Ticker: **{ticker}**")
+            
         with col_price:
             st.metric("Market Price", f"{last_price:.2f} €", f"{var_abs:+.2f} ({var_pct:+.2%})")
 
     # 2. ASSET OVERVIEW
-    st.markdown("#### 📈 Asset Overview") # Graphique montant simple
+    st.markdown("#### 📈 Asset Overview")
     with st.container(border=True):
         c1, c2, c3, c4 = st.columns(4)
         with c1: show_big_number("Total Return", metrics['BuyHold_Return'], color_cond="green_if_pos")
@@ -95,7 +144,7 @@ def render_dashboard_final_v16(df_strat, metrics, ticker, asset_name, strat_name
         with c4: show_big_number("Sharpe Ratio", metrics['BuyHold_Sharpe'], fmt="{:.2f}", color_cond="always_blue")
 
     # 3. RISK ANALYSIS
-    st.markdown("#### 📉 Risk Analysis") # Graphique descendant pour le risque
+    st.markdown("#### 📉 Risk Analysis")
     returns_series = df_strat['Close'].pct_change().dropna()
     confidence_level = 0.95
     var_95 = np.percentile(returns_series, (1 - confidence_level) * 100)
@@ -108,15 +157,16 @@ def render_dashboard_final_v16(df_strat, metrics, ticker, asset_name, strat_name
         with r3: show_big_number("Worst Day", returns_series.min(), color_cond="red_if_neg")
         st.divider()
         
+        # Risk Colors: Red if <= VaR, Green if > 0, Orange if < 0 but > VaR
         chron_data = []
         for date, val in returns_series.items():
-            color = "#da3633" if val <= var_95 else "#238636" if val >= 0 else "#57524e"
+            color = "#da3633" if val <= var_95 else "#238636" if val >= 0 else "#4B4B4B"
             chron_data.append({"value": [date.strftime('%Y-%m-%d'), val], "itemStyle": {"color": color}})
 
         sorted_ret = returns_series.sort_values().tolist()
         sorted_data = []
         for i, val in enumerate(sorted_ret):
-            color = "#da3633" if val <= var_95 else "#238636" if val >= 0 else "#57524e"
+            color = "#da3633" if val <= var_95 else "#238636" if val >= 0 else "#4B4B4B"
             sorted_data.append({"value": [i, val], "itemStyle": {"color": color}})
 
         risk_option = {
@@ -133,7 +183,7 @@ def render_dashboard_final_v16(df_strat, metrics, ticker, asset_name, strat_name
         st_echarts(options=risk_option, height="350px")
 
     # 4. STRATEGY SIMULATION
-    st.markdown("#### ⚙️ Strategy Simulation") # Engrenage pour la mécanique
+    st.markdown("#### ⚙️ Strategy Simulation")
     param_txt = "  •  ".join([f"**{k}**: {v}" for k,v in params.items()])
     st.info(f"**Strategy Running**: {strat_name}  —  Settings: {param_txt}")
 
@@ -158,7 +208,7 @@ def render_dashboard_final_v16(df_strat, metrics, ticker, asset_name, strat_name
         st_echarts(options=option, height="450px")
 
     # 5. PERFORMANCE
-    st.markdown("#### ⚖️ Performance & Execution") # Balance pour comparer
+    st.markdown("#### ⚖️ Performance & Execution")
     col_comp, col_exec = st.columns([1.5, 1])
     with col_comp:
         with st.container(border=True):
@@ -174,7 +224,7 @@ def render_dashboard_final_v16(df_strat, metrics, ticker, asset_name, strat_name
             with m4: show_big_number("Volatility", s_vol, f"{d_vol:+.2%} vs Asset", color_cond="neutral")
     with col_exec:
         with st.container(border=True):
-            st.markdown("##### ⏱️ Trade Execution") # Chrono pour le timing
+            st.markdown("##### ⏱️ Trade Execution")
             k1, k2 = st.columns(2); k3, k4 = st.columns(2)
             nb_trades = metrics.get('Active_Trades', 0); win_rate = metrics.get('Active_WinRate', 0)
             avg_ret = (metrics['Active_Return'] / nb_trades) if nb_trades > 0 else 0
@@ -184,7 +234,7 @@ def render_dashboard_final_v16(df_strat, metrics, ticker, asset_name, strat_name
             with k4: st.write("")
 
     # 6. FORECASTING
-    st.markdown(f"#### 🧠 Price Forecasting ({pred_days} days | Random Forest)") # Cerveau pour l'IA
+    st.markdown(f"#### 🧠 Price Forecasting ({pred_days} days | Random Forest)")
     pred_df = predict_ml_model(df_strat, days_ahead=pred_days, n_lags=model_lags)
     
     hist_subset = df_strat
@@ -230,11 +280,26 @@ def render_dashboard_final_v16(df_strat, metrics, ticker, asset_name, strat_name
 # ==============================================================================
 def quant_a_ui():
     with st.sidebar:
-        st.markdown("## 🎛️ **Dashboard Config**") # Boutons de contrôle
+        st.markdown("## 🎛️ **Dashboard Config**")
         st.divider()
         st.markdown("### 1️⃣ Asset Selection")
-        selected_name = st.selectbox("Ticker Symbol", options=list(AVAILABLE_ASSETS.keys()), label_visibility="collapsed")
+        
+        # --- CORRECTION DU BUG KEYERROR : NONE ---
+        # Si la liste est vide (import raté), on met une liste de secours
+        options_list = list(AVAILABLE_ASSETS.keys())
+        if not options_list:
+            options_list = ["Error loading assets"]
+            
+        selected_name = st.selectbox("Ticker Symbol", options=options_list, label_visibility="collapsed")
+        
+        # Sécurité : Si l'utilisateur n'a rien sélectionné ou si on est en mode erreur
+        if not selected_name or selected_name == "Error loading assets":
+            st.error("Aucun actif disponible. Vérifiez les imports.")
+            st.stop() # Arrête l'exécution ici pour éviter le crash
+            
         ticker = AVAILABLE_ASSETS[selected_name]
+        # ----------------------------------------
+        
         st.divider()
         st.markdown("### 2️⃣ Strategy Logic")
         strategy_type = st.selectbox("Method", ["Buy & Hold", "MA Crossover", "Momentum", "Mean Reversion"], label_visibility="collapsed")
@@ -261,7 +326,7 @@ def quant_a_ui():
         pred_days = st.slider("Horizon (Days)", 5, 90, 30)
         model_lags = st.slider("Model Context (Past Days)", 5, 60, 20)
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("▶️ Start Analysis", use_container_width=True, type="primary"): # Bouton Play simple
+        if st.button("▶️ Start Analysis", use_container_width=True, type="primary"):
             st.session_state.show_analysis = True
 
     if 'show_analysis' not in st.session_state:
@@ -289,7 +354,7 @@ def quant_a_ui():
                 base_idx_val = df_strat.loc[first_valid, 'Strat_Active']
                 df_strat['Sim_Active'] = (df_strat['Strat_Active'] / base_idx_val) * strat_start
                 
-                render_dashboard_final_v16(df_strat, metrics, ticker, selected_name, strategy_type, params, pred_days, model_lags)
+                render_dashboard_final_v18(df_strat, metrics, ticker, selected_name, strategy_type, params, pred_days, model_lags)
 
                 with st.expander("🗃️ View Full Dataset"):
                     st.dataframe(style_dataframe(df_strat.sort_index(ascending=False)), use_container_width=True)
