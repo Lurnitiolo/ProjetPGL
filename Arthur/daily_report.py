@@ -74,3 +74,6 @@ def generate_report():
     file_path = os.path.join(output_dir, "daily_report_latest.csv")
     df_report.to_csv(file_path, index=False)
     print(f"[{datetime.now()}] Rapport sauvegardé : {file_path}")
+    
+if __name__ == "__main__":
+    generate_report()
