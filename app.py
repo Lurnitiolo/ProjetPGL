@@ -13,13 +13,18 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 2. CSS STYLING
+# 2. CSS STYLING (CORRIGÉ POUR SIDEBAR)
 # ==============================================================================
 st.markdown("""
     <style>
-        /* A. Hide Native Header */
-        header {visibility: hidden;}
-        .block-container {padding-top: 2rem;}
+        /* A. HEADER & SIDEBAR TOGGLE (CORRIGÉ) */
+        /* Force le bouton > à rester visible même si le header est caché */
+        [data-testid="stSidebarCollapsedControl"] {
+            visibility: visible !important;
+            display: block !important;
+            color: #e6edf3 !important; 
+        }
+        .block-container {padding-top: 3rem;}
 
         /* B. NAVIGATION (RADIO -> TABS) */
         div.stRadio > div[role="radiogroup"] {
@@ -69,35 +74,30 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 3. HELPER: LOGO URL (Extended Universe)
+# 3. HELPER: LOGO URL
 # ==============================================================================
 def get_logo_url(ticker):
     """Retrieves logo URL based on Ticker."""
-    # Mapping complet pour ton univers
     domains = {
         # France
         "MC.PA": "lvmh.com", "TTE.PA": "totalenergies.com", "AIR.PA": "airbus.com",
         "BNP.PA": "group.bnpparibas", "SAN.PA": "sanofi.com",
         # US Tech
         "NVDA": "nvidia.com", "TSLA": "tesla.com", "AAPL": "apple.com", "MSFT": "microsoft.com",
-        # Indices & ETFs (Provider domains)
+        # Indices & ETFs
         "SPY": "ssga.com", "QQQ": "invesco.com", "CW8.PA": "amundi.fr", "GLD": "spdrgoldshares.com"
     }
     
-    # 1. Crypto Special Case
     if "-USD" in ticker:
         symbol = ticker.split("-")[0].lower()
         return f"https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/{symbol}.png"
     
-    # 2. Gold Special Case
     if ticker == "GLD":
         return "https://cdn-icons-png.flaticon.com/512/1055/1055646.png"
 
-    # 3. Standard Domain Favicon
     if ticker in domains:
         return f"https://www.google.com/s2/favicons?domain={domains[ticker]}&sz=128"
     
-    # 4. Default Fallback
     return "https://cdn-icons-png.flaticon.com/512/4256/4256900.png"
 
 # ==============================================================================
@@ -114,7 +114,7 @@ except ImportError:
 # ==============================================================================
 
 # Main Title
-st.markdown("<h1 style='text-align: center;'>Python Git Linux Project</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center;'>Python Git Linux Project - JACKS HOAREAU</h1>", unsafe_allow_html=True)
 st.markdown("<h4 style='text-align: center; color: #8b949e;'>ESILV - IF4 : HOAREAU Virgil / JACKS Arthur</h4>", unsafe_allow_html=True)
 
 st.write("") 
@@ -135,7 +135,7 @@ if selected_tab == "🏠 Home":
     # --- HOME PAGE ---
     
     st.markdown("### 👋 Welcome to the Dashboard")
-    st.info("This project was developed as part of the Python for Finance course. It provides quantitative analysis tools, automated reporting, and portfolio management features.")
+    st.info("This project was developed as part of the Python for Finance course (M1). It provides quantitative analysis tools, automated reporting, and portfolio management features.")
     
     st.divider()
     
@@ -148,9 +148,8 @@ if selected_tab == "🏠 Home":
         The dashboard currently monitors the following **15 assets** across different sectors and regions:
         """)
         
-        st.write("") # Spacer
+        st.write("") 
         
-        # DEFINITION DE LA LISTE COMPLETE
         full_assets_list = [
             # 🇫🇷 FRANCE
             ("LVMH", "MC.PA"), ("TotalEnergies", "TTE.PA"), ("Airbus", "AIR.PA"), ("BNP Paribas", "BNP.PA"), ("Sanofi", "SAN.PA"),
@@ -162,10 +161,9 @@ if selected_tab == "🏠 Home":
             ("Bitcoin", "BTC-USD"), ("Ethereum", "ETH-USD")
         ]
         
-        # Grid Display (5 colonnes pour que ce soit compact et propre)
         cols = st.columns(5)
         for i, (name, ticker) in enumerate(full_assets_list):
-            with cols[i % 5]: # Modulo 5 pour revenir à la ligne automatiquement
+            with cols[i % 5]: 
                 st.image(get_logo_url(ticker), width=40)
                 st.markdown(f"**{name}**")
                 st.caption(f"`{ticker}`")
@@ -214,10 +212,8 @@ if selected_tab == "🏠 Home":
         report_path = "reports/daily_report_latest.csv"
         
         if os.path.exists(report_path):
-            # Load CSV
             df_report = pd.read_csv(report_path)
             
-            # Styling for display
             st.dataframe(
                 df_report.style.format({
                     "Close Price": "{:.2f} €/$",
@@ -229,8 +225,8 @@ if selected_tab == "🏠 Home":
                 hide_index=True
             )
             
-            if not df_report.empty:
-                last_update = df_report['Last Update'].iloc[0] if 'Last Update' in df_report.columns else "Unknown"
+            if not df_report.empty and 'Last Update' in df_report.columns:
+                last_update = df_report['Last Update'].iloc[0]
                 st.caption(f"✅ Last successful run: {last_update}")
         else:
             st.warning("⚠️ No daily report found. The Cron Job might not have run yet (Wait for 8pm).")
