@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+from Arthur import Arthur_page
 from Virgil import Virgil_page
 
 # ==============================================================================
@@ -104,11 +105,7 @@ def get_logo_url(ticker):
 # ==============================================================================
 # 4. IMPORTS & ERROR HANDLING
 # ==============================================================================
-try:
-    from Arthur import Arthur_page
-except ImportError:
-    st.error("⚠️ Error: Module 'Arthur' not found.")
-    st.stop()
+
 
 # ==============================================================================
 # 5. HEADER & NAVIGATION
