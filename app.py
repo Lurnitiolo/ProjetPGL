@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 from Arthur import Arthur_page
+from Arthur.daily_report import generate_report
 from Virgil import Virgil_page
 
 # ==============================================================================

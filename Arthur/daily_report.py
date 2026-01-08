@@ -75,5 +75,5 @@ def generate_report():
     df_report.to_csv(file_path, index=False)
     print(f"[{datetime.now()}] Rapport sauvegardé : {file_path}")
     
-    if __name__ == "__main__":
-        generate_report()
+if __name__ == "__main__":
+    generate_report()
