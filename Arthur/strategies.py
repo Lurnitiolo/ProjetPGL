@@ -1,16 +1,31 @@
 import pandas as pd
 import numpy as np
 from scipy.stats import skew, kurtosis
+from sklearn.ensemble import RandomForestRegressor
 
 AVAILABLE_ASSETS = {
-    "Airbus": "AIR.PA",
-    "LVMH": "MC.PA",
-    "TotalEnergies": "TTE.PA",
-    "Sanofi": "SAN.PA",
-    "L'Oréal": "OR.PA",
-    "Schneider Electric": "SU.PA",
-    "Amundi ETF MSCI World": "CW8.PA",
-    "Other (Manual Input)": "MANUAL" 
+    # --- 🇫🇷 FRANCE (CAC 40) ---
+    "LVMH (Luxury)": "MC.PA",
+    "TotalEnergies (Energy)": "TTE.PA",
+    "Airbus (Industrial)": "AIR.PA",
+    "BNP Paribas (Banking)": "BNP.PA",
+    "Sanofi (Health/Defensive)": "SAN.PA",
+    
+    # --- 🇺🇸 US TECH (High Growth/Vol) ---
+    "NVIDIA (AI Boom)": "NVDA",
+    "Tesla (High Volatility)": "TSLA",
+    "Apple (Quality Growth)": "AAPL",
+    "Microsoft (Big Tech)": "MSFT",
+    
+    # --- 🌍 ETFS & INDICES ---
+    "S&P 500 (US Market)": "SPY",
+    "MSCI World (Global)": "CW8.PA",
+    "Nasdaq 100 (Tech Index)": "QQQ",
+    "Gold (Commodity)": "GLD",
+    
+    # --- ₿ CRYPTO (Extreme Risk) ---
+    "Bitcoin (BTC)": "BTC-USD",
+    "Ethereum (ETH)": "ETH-USD"
 }
 
 def calculate_metrics(df):
@@ -149,3 +164,66 @@ def apply_strategies(df, strategy_type, params):
         df['Position'] = 0
 
     return calculate_metrics(df)
+
+def predict_ml_model(df, days_ahead=30, n_lags=5):
+    """
+    Modèle ML : Random Forest avec Lags dynamiques.
+    n_lags : Nombre de jours passés utilisés pour prédire le jour suivant.
+    """
+    data = df[['Close']].copy()
+    data['Log_Ret'] = np.log(data['Close'] / data['Close'].shift(1))
+    data.dropna(inplace=True)
+
+    for i in range(1, n_lags + 1):
+        data[f'Lag_{i}'] = data['Log_Ret'].shift(i)
+    data.dropna(inplace=True)
+    
+    lag_cols = [f'Lag_{i}' for i in range(1, n_lags + 1)]
+    X = data[lag_cols].values
+    y = data['Log_Ret'].values
+    
+    # Random Forest
+    model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
+    model.fit(X, y)
+    
+    y_pred_train = model.predict(X)
+    std_resid = np.std(y - y_pred_train)
+    
+    current_feats = data.iloc[-1][lag_cols].values.reshape(1, -1)
+    future_log_returns = []
+    
+    np.random.seed(42)
+    
+    for _ in range(days_ahead):
+        pred_ret = model.predict(current_feats)[0]
+        noise = np.random.normal(0, std_resid * 0.5) 
+        final_pred = pred_ret + noise
+        
+        future_log_returns.append(final_pred)
+        
+        new_feats = np.roll(current_feats, 1)
+        new_feats[0, 0] = final_pred
+        current_feats = new_feats
+        
+    last_price = df['Close'].iloc[-1]
+    last_date = df.index[-1]
+    future_dates = pd.date_range(start=last_date, periods=days_ahead + 1, freq='B')[1:]
+    
+    cumulative_returns = np.cumsum(future_log_returns)
+    predicted_prices = last_price * np.exp(cumulative_returns)
+    
+    time_sqrt = np.sqrt(np.arange(1, days_ahead + 1))
+    volatility = data['Log_Ret'].std()
+    
+    upper_band = predicted_prices * np.exp(1.96 * volatility * time_sqrt)
+    lower_band = predicted_prices * np.exp(-1.96 * volatility * time_sqrt)
+    
+    pred_df = pd.DataFrame({
+        'Date': future_dates,
+        'Prediction': predicted_prices,
+        'Upper': upper_band,
+        'Lower': lower_band
+    })
+    pred_df.set_index('Date', inplace=True)
+    
+    return pred_df
