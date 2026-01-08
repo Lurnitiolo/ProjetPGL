@@ -18,7 +18,6 @@ def daily_report():
         with open(file_path, "r") as file:
             df = pd.read_csv(file_path)
             data = df.to_dict(orient="records")
-            print('ma bite')
             return jsonify({
                 "status": "success",
                 "data": data
