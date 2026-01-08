@@ -3,39 +3,43 @@ import pandas as pd
 import streamlit as st
 
 def get_logo_url(ticker):
-    # Mapping manuel pour les domaines boursiers
+    # Mapping manuel pour les domaines boursiers (mis à jour)
     domains = {
         "AAPL": "apple.com", 
         "MSFT": "microsoft.com", 
         "GOOGL": "google.com",
         "AMZN": "amazon.com", 
         "TSLA": "tesla.com", 
+        "NVDA": "nvidia.com",
+        "MC.PA": "lvmh.com",
+        "TTE.PA": "totalenergies.com",
+        "AIR.PA": "airbus.com",
+        "BNP.PA": "group.bnpparibas",
+        "SAN.PA": "sanofi.com",
+        "SPY": "ssga.com",        # State Street (S&P 500)
+        "CW8.PA": "amundi.com",   # Amundi (MSCI World)
+        "QQQ": "invesco.com",     # Invesco (Nasdaq 100)
         "EURUSD=X": "ecb.europa.eu"
     }
     
-    # Gestion des Cryptos (ex: BTC-USD)
-    # On utilise une source directe pour les icônes crypto (GitHub de spothq est très fiable)
+    # 1. Gestion des Cryptos (BTC-USD, ETH-USD)
     if "-USD" in ticker:
         symbol = ticker.split("-")[0].lower()
         return f"https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/{symbol}.png"
     
-    # Gestion de l'Or (Gold) - Lien direct vers l'image PNG
-    if ticker == "GC=F":
+    # 2. Gestion de l'Or (Gold) - Supporte GC=F et GLD
+    if ticker in ["GC=F", "GLD"]:
         return "https://cdn-icons-png.flaticon.com/512/272/272530.png"
     
-    # Utilisation du service Google Favicon pour les actions
+    # 3. Utilisation du service Google Favicon pour les actions et ETFs
     domain = domains.get(ticker)
     if domain:
+        # sz=128 permet d'obtenir la meilleure résolution possible via Google
         return f"https://www.google.com/s2/favicons?domain={domain}&sz=128"
     
     return None
 
-    # --- Test de l'affichage dans Streamlit ---
-    if url:
-        st.image(url, width=100)
-        st.write(f"Logo pour {ticker_test}")
-    else:
-        st.write("Logo non trouvé.")
+    
 
 
 
