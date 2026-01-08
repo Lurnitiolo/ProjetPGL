@@ -4,38 +4,10 @@ import pandas as pd
 import numpy as np
 from .data_loader import load_stock_data, get_logo_url
 from .strategies import apply_strategies, calculate_metrics
-from .render_efficiency import min_max_scale, render_portfolio_simulation
+from .render_efficiency import min_max_scale, render_portfolio_simulation, apply_preset_callback
 
 def quant_b_ui():
     st.header("📈 Analyse de Portefeuille (Quant B)")
-
-    st.markdown("""
-        <style>
-            /* 1. Réduire l'espace global entre les widgets dans cette colonne */
-            [data-testid="column"] [data-testid="stVerticalBlock"] > div {
-                margin-top: 20px !important;
-                margin-bottom: 10px !important;
-            }
-
-            /* 2. Rapprocher les labels (titres) de leurs champs respectifs */
-            label[data-testid="stWidgetLabel"] {
-                margin-bottom: 15px !important;
-                font-size: 0.85rem !important;
-                font-weight: 600 !important;
-            }
-
-            /* 3. Ajustement spécifique pour remonter le champ MA */
-            div[data-testid="stNumberInput"] {
-                margin-top: 15px !important;
-            }
-
-            /* 4. Ajustement spécifique pour les Sliders SL et TP */
-            div[data-testid="stSlider"] {
-                margin-top: -5px !important;
-                padding-bottom: 0px !important;
-            }
-        </style>
-    """, unsafe_allow_html=True)
 
     # --- 1. INITIALISATION DE LA MÉMOIRE ---
     if 'portfolio_data' not in st.session_state:
@@ -44,54 +16,105 @@ def quant_b_ui():
         st.session_state.tickers_analyzed = []
     if 'asset_settings' not in st.session_state:
         st.session_state.asset_settings = {}
-    if 'portfolio_weights' not in st.session_state:
-        st.session_state.portfolio_weights = {}
 
     # --- 2. CONFIGURATION (SIDEBAR) ---
     with st.sidebar:
-        st.title("⚙️ Global")
-        cap_init = st.number_input("Capital Initial ($)", value=1000)
+        st.title("⚙️ Global Settings")
+        cap_init = st.number_input("Capital Initial ($)", value=1000, key="global_cap")
 
-        tickers_list = [
-            "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "BTC-USD", "EURUSD=X", "GC=F", 
-            "MC.PA", "TTE.PA", "AIR.PA", "BNP.PA", "SAN.PA", "NVDA", "SPY", 
-            "CW8.PA", "QQQ", "GLD", "ETH-USD"
-        ]
-        selected_tickers = st.multiselect("Actifs du panier", options=tickers_list, default=["AAPL", "MSFT", "BTC-USD"])
+        tickers_list = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "BTC-USD", "EURUSD=X", "GC=F", "MC.PA", "TTE.PA", "AIR.PA", "BNP.PA", "SAN.PA", "NVDA", "SPY", "CW8.PA", "QQQ", "GLD", "ETH-USD"]
+        selected_tickers = st.multiselect("Actifs du panier", options=tickers_list, default=["AAPL", "MSFT", "BTC-USD"], key="global_tickers")
         
-        # AJOUT : Message d'avertissement visuel si < 3
-        if len(selected_tickers) < 3:
-            st.warning("⚠️ Sélectionnez au moins 3 actifs.")
+        st.divider()
 
-        if st.button("🔄 Charger les données", use_container_width=True):
-            # VERIFICATION de la condition au clic
-            if len(selected_tickers) < 3:
-                st.error("Erreur : Vous devez choisir au moins 3 actifs pour simuler un portefeuille.")
-            else:
-                with st.spinner("Chargement..."):
-                    eq_val = round(100.0 / len(selected_tickers), 2)
-                    st.session_state.portfolio_weights = {t: eq_val for t in selected_tickers}
-
-                    for t in selected_tickers:
-                        st.session_state[f"slider_weight_{t}"] = eq_val
-                        st.session_state[f"num_weight_{t}"] = eq_val
-
-                    data_dict = {}
-                    for t in selected_tickers:
-                        df_raw = load_stock_data(t)
-                        
-                        if t not in st.session_state.asset_settings:
-                            st.session_state.asset_settings[t] = {
-                                'ma': 20, 
-                                'sl': 10.0, 
-                                'tp': 30.0  
-                            }
-                        
-                        s = st.session_state.asset_settings[t]
-                        data_dict[t] = apply_strategies(df_raw, s['ma'], s['sl']/100, s['tp']/100)
+        # --- BLOC OPTIMISATION (Apparaît après analyse) ---
+        if st.session_state.portfolio_data:
+            st.markdown("### ⚖️ Optimisation du Panier")
+            with st.container(border=True):
+                data_dict = st.session_state.portfolio_data
+                tickers = st.session_state.tickers_analyzed
+                
+                # Calcul des statistiques pour les presets
+                # --- CALCUL DES STATISTIQUES ---
+                stats = {}
+                for t in tickers:
+                    # On récupère rendement et drawdown via la fonction de metrics
+                    p_ret, p_mdd = calculate_metrics(data_dict[t]['Strat_Momentum'])
+                    vol = data_dict[t]['Strat_Returns'].std() * np.sqrt(252)
                     
-                    st.session_state.portfolio_data = data_dict
+                    # On s'assure que mdd et vol ne soient pas à 0 pour éviter la division par zéro
+                    stats[t] = {
+                        'ret': p_ret, 
+                        'mdd': abs(p_mdd) if abs(p_mdd) > 0.01 else 0.01,
+                        'vol': vol if vol > 0.001 else 0.01, 
+                        'sharpe': p_ret / vol if vol > 0.001 else 0
+                    }
+
+                # --- DÉFINITION DES PRESETS COMPLETS ---
+                presets = {}
+                eq_v = round(100.0 / len(tickers), 2)
+                
+                # 1. Equal Weight
+                presets['eq'] = {t: eq_v for t in tickers}
+                
+                # 2. Risk Parity (1/Vol)
+                total_inv_vol = sum(1/stats[t]['vol'] for t in tickers)
+                presets['rp'] = {t: round(((1/stats[t]['vol'])/total_inv_vol)*100, 2) for t in tickers}
+                
+                # 3. Minimum Drawdown (1/MDD)
+                total_inv_mdd = sum(1/stats[t]['mdd'] for t in tickers)
+                presets['md'] = {t: round(((1/stats[t]['mdd'])/total_inv_mdd)*100, 2) for t in tickers}
+                
+                # 4. Top Perf (Proportionnel aux rendements positifs)
+                total_pos_ret = sum(max(0, stats[t]['ret']) for t in tickers)
+                presets['tp'] = {t: (round((max(0, stats[t]['ret'])/total_pos_ret)*100, 2) if total_pos_ret > 0 else eq_v) for t in tickers}
+                
+                # 5. Ratio de Sharpe
+                total_sh = sum(max(0, stats[t]['sharpe']) for t in tickers)
+                presets['sr'] = {t: (round((max(0, stats[t]['sharpe'])/total_sh)*100, 2) if total_sh > 0 else eq_v) for t in tickers}
+
+                # --- BOUTONS DE LA SIDEBAR (Arthur V18 Style) ---
+                st.button("⚖️ Poids Égaux", on_click=apply_preset_callback, args=(presets['eq'],), use_container_width=True, key="side_btn_eq")
+                st.button("🛡️ Parité des Risques", on_click=apply_preset_callback, args=(presets['rp'],), use_container_width=True, key="side_btn_rp")
+                st.button("📉 Min Drawdown", on_click=apply_preset_callback, args=(presets['md'],), use_container_width=True, key="side_btn_md")
+                st.button("🚀 Top Performance", on_click=apply_preset_callback, args=(presets['tp'],), use_container_width=True, key="side_btn_tp")
+                st.button("💎 Ratio de Sharpe", on_click=apply_preset_callback, args=(presets['sr'],), use_container_width=True, key="side_btn_sr")
+            
+            st.write("") # Spacer
+
+        # --- BOUTON DE LANCEMENT ---
+        # --- BOUTON DE LANCEMENT ---
+        if st.button("🔄 Charger & Réinitialiser (1/N)", use_container_width=True, type="primary", key="main_launch_btn"):
+            if len(selected_tickers) < 3:
+                st.error("Erreur : Choisissez au moins 3 actifs.")
+            else:
+                with st.spinner("Analyse et rééquilibrage en cours..."):
+                    new_data = {}
+                    # 1. Calcul de la nouvelle valeur d'équilibre
+                    eq_val = round(100.0 / len(selected_tickers), 2)
+                    
+                    # 2. Réinitialisation complète du dictionnaire de poids
+                    st.session_state.portfolio_weights = {t: eq_val for t in selected_tickers}
+                    
+                    for t in selected_tickers:
+                        # 3. Forçage des widgets Sliders et Inputs à l'équilibre
+                        st.session_state[f"slider_weight_{t}"] = float(eq_val)
+                        st.session_state[f"num_weight_{t}"] = float(eq_val)
+                        
+                        # Gestion des paramètres de stratégie par défaut
+                        if t not in st.session_state.asset_settings:
+                            st.session_state.asset_settings[t] = {'ma': 20, 'sl': 10.0, 'tp': 30.0}
+                        
+                        # Chargement et application des stratégies
+                        df_raw = load_stock_data(t)
+                        s = st.session_state.asset_settings[t]
+                        new_data[t] = apply_strategies(df_raw, s['ma'], s['sl']/100, s['tp']/100)
+                    
+                    # Mise à jour des données globales
+                    st.session_state.portfolio_data = new_data
                     st.session_state.tickers_analyzed = selected_tickers
+                    
+                    # Rerun pour forcer l'affichage des nouveaux poids dans l'UI
                     st.rerun()
 
     # --- 3. AFFICHAGE PRINCIPAL (BIEN INDENTÉ DANS LA FONCTION) ---
