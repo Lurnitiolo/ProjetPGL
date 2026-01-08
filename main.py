@@ -1,8 +1,9 @@
 from waitress import serve
-import flask
+from flask import Flask, jsonify
 import os
+import pandas as pd
 
-app = flask.Flask(__name__)
+app = Flask(__name__)
 
 @app.route('/', methods=['GET'])
 def home():
@@ -15,7 +16,13 @@ def daily_report():
     file_path = "Arthur/reports/daily_report_latest.csv"
     if os.path.exists(file_path):
         with open(file_path, "r") as file:
-            return file.read()
+            df = pd.read_csv(file_path)
+            data = df.to_dict(orient="records")
+            print('ma bite')
+            return jsonify({
+                "status": "success",
+                "data": data
+            })
     else:
         return "Report not found."
 
