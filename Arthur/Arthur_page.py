@@ -18,32 +18,45 @@ except ImportError:
 st.set_page_config(page_title="Quant Dashboard", page_icon="💠", layout="wide")
 
 # ==============================================================================
-# HELPER : GROS CHIFFRES NATIFS (CLEAN)
+# HELPER : GROS CHIFFRES UNIFIÉS
 # ==============================================================================
-def show_big_number(label, value, fmt="{:.2%}", color_cond="neutral"):
+def show_big_number(label, value, delta=None, fmt="{:.2%}", color_cond="neutral"):
     val_str = fmt.format(value)
-    color = "" 
     
+    # Gestion Couleur Valeur Principale
+    color_str = "" 
     if color_cond == "green_if_pos":
-        if value > 0: color = ":green"
-        elif value < 0: color = ":red"
+        color_str = ":green" if value > 0 else ":red"
     elif color_cond == "red_if_neg":
-        color = ":red"
+        color_str = ":red"
     elif color_cond == "green_bool": 
-        color = ":green" if value > 0.5 else ":red"
+        color_str = ":green" if value > 0.5 else ":red"
     elif color_cond == "always_blue":
-        color = ":blue"
-        
+        color_str = ":blue"
+    
+    # Affichage
     st.markdown(f"**{label}**")
-    if color:
-        st.markdown(f"## {color}[{val_str}]")
+    if color_str:
+        st.markdown(f"## {color_str}[{val_str}]")
     else:
         st.markdown(f"## {val_str}")
+        
+    if delta:
+        d_color = ""
+        if "vs" in delta: 
+            if "+" in delta.split(" ")[0]: d_color = ":green"
+            elif "-" in delta.split(" ")[0]: d_color = ":red"
+        
+        if d_color:
+            st.markdown(f"{d_color}[{delta}]")
+        else:
+            st.caption(delta)
+
 
 # ==============================================================================
 # RENDERING PRINCIPAL
 # ==============================================================================
-def render_dashboard_risk_v2(df_strat, metrics, ticker, asset_name, strat_name, params):
+def render_dashboard_final_v6(df_strat, metrics, ticker, asset_name, strat_name, params):
     
     # --------------------------------------------------------------------------
     # 1. TITRE GLOBAL
@@ -79,7 +92,7 @@ def render_dashboard_risk_v2(df_strat, metrics, ticker, asset_name, strat_name, 
         with c4: show_big_number("Sharpe Ratio", metrics['BuyHold_Sharpe'], fmt="{:.2f}", color_cond="always_blue")
 
     # --------------------------------------------------------------------------
-    # 4. RISK ANALYSIS (AVEC TOGGLE ET COULEURS)
+    # 4. RISK ANALYSIS (TOGGLE + LEGENDE)
     # --------------------------------------------------------------------------
     st.markdown("#### ⚠️ Risk Analysis")
 
@@ -97,72 +110,43 @@ def render_dashboard_risk_v2(df_strat, metrics, ticker, asset_name, strat_name, 
             
         st.divider()
         
-        # B. Préparation des Données pour le Plot
-        
-        # Série 1 : Chronologique (Dates)
+        # B. Plot Risk
         chron_data = []
         for date, val in returns_series.items():
-            # Couleur : Vert si > 0, Rouge si < 0
-            color = "#238636" if val >= 0 else "#da3633"
-            chron_data.append({
-                "value": [date.strftime('%Y-%m-%d'), round(float(val), 4)],
-                "itemStyle": {"color": color}
-            })
+            if val <= var_95: color = "#da3633" # Rouge (Breach)
+            elif val >= 0: color = "#238636" # Vert (Positif)
+            else: color = "#30363d" # Gris (Négatif normal)
+            chron_data.append({"value": [date.strftime('%Y-%m-%d'), round(float(val), 4)], "itemStyle": {"color": color}})
 
-        # Série 2 : Triée (S-Curve)
-        # On trie les valeurs
         sorted_ret = returns_series.sort_values().tolist()
         sorted_data = []
         for i, val in enumerate(sorted_ret):
-            color = "#238636" if val >= 0 else "#da3633"
-            # L'axe X est juste un index (0, 1, 2, ...)
-            sorted_data.append({
-                "value": [i, round(float(val), 4)],
-                "itemStyle": {"color": color}
-            })
+            if val <= var_95: color = "#da3633"
+            elif val >= 0: color = "#238636"
+            else: color = "#30363d"
+            sorted_data.append({"value": [i, round(float(val), 4)], "itemStyle": {"color": color}})
 
-        # C. Configuration ECharts Double Axe
         risk_option = {
             "backgroundColor": "#0e1117",
             "tooltip": {"trigger": "axis"},
             "legend": {
                 "show": True,
-                "data": ["Chronological", "Sorted Distribution"],
+                "data": ["Daily Returns", "Returns Distribution"], 
                 "top": "0%",
-                "textStyle": {"color": "#e6edf3"},
-                # Par défaut, on sélectionne 'Chronological' et on désélectionne 'Sorted'
-                # L'utilisateur clique pour inverser
-                "selected": {
-                    "Chronological": True,
-                    "Sorted Distribution": False
-                }
+                "textStyle": {"color": "#8b949e"},
+                "selected": {"Daily Returns": True, "Returns Distribution": False}
             },
             "grid": {"left": "3%", "right": "3%", "bottom": "10%", "top": "15%"},
-            
-            # DEUX AXES X SUPERPOSÉS
             "xAxis": [
-                {
-                    "type": "category", 
-                    "data": returns_series.index.strftime('%Y-%m-%d').tolist(), 
-                    "gridIndex": 0,
-                    "show": True # Axe des dates visible par défaut
-                },
-                {
-                    "type": "category",
-                    # Pas de labels pour le trié, juste l'échelle
-                    "show": False, 
-                    "gridIndex": 0
-                }
+                {"type": "category", "data": returns_series.index.strftime('%Y-%m-%d').tolist(), "gridIndex": 0, "show": True},
+                {"type": "category", "show": False, "gridIndex": 0}
             ],
-            "yAxis": {
-                "type": "value", 
-                "splitLine": {"show": True, "lineStyle": {"color": "#30363d", "type": "dashed"}},
-            },
+            "yAxis": {"type": "value", "splitLine": {"show": True, "lineStyle": {"color": "#30363d", "type": "dashed"}}},
             "series": [
                 {
-                    "name": "Chronological",
+                    "name": "Daily Returns",
                     "type": "bar",
-                    "xAxisIndex": 0, # Utilise l'axe des dates
+                    "xAxisIndex": 0,
                     "data": chron_data,
                     "barWidth": "60%",
                     "markLine": {
@@ -173,11 +157,11 @@ def render_dashboard_risk_v2(df_strat, metrics, ticker, asset_name, strat_name, 
                     }
                 },
                 {
-                    "name": "Sorted Distribution",
-                    "type": "bar", # Bar chart rend mieux qu'une ligne pour voir la densité couleur
-                    "xAxisIndex": 1, # Utilise l'axe caché (index)
+                    "name": "Returns Distribution",
+                    "type": "bar",
+                    "xAxisIndex": 1,
                     "data": sorted_data,
-                    "barWidth": "100%", # Collé pour faire un effet de surface
+                    "barWidth": "100%",
                     "markLine": {
                         "symbol": "none",
                         "data": [{"yAxis": round(float(var_95), 4)}],
@@ -205,7 +189,14 @@ def render_dashboard_risk_v2(df_strat, metrics, ticker, asset_name, strat_name, 
         option = {
             "backgroundColor": "#0e1117",
             "tooltip": {"trigger": "axis", "axisPointer": {"type": "cross"}},
-            "grid": {"left": "3%", "right": "3%", "bottom": "15%"},
+            "legend": {
+                "show": True,
+                "data": ["Asset", "Strategy"],
+                "top": "0%",
+                "right": "2%",
+                "textStyle": {"color": "#e6edf3"}
+            },
+            "grid": {"left": "3%", "right": "3%", "bottom": "15%", "top": "15%"},
             "xAxis": {"type": "category", "data": dates, "scale": True},
             "yAxis": {"scale": True, "splitLine": {"show": True, "lineStyle": {"color": "#30363d", "type": "dashed"}}},
             "dataZoom": [{"type": "inside"}, {"show": True, "type": "slider", "top": "90%"}],
@@ -230,19 +221,19 @@ def render_dashboard_risk_v2(df_strat, metrics, ticker, asset_name, strat_name, 
             
             s_ret = metrics['Active_Return']
             d_ret = s_ret - metrics['BuyHold_Return']
-            m1.metric("Total Return (Strategy)", f"{s_ret:+.2%}", f"{d_ret:+.2%} vs Asset")
+            with m1: show_big_number("Total Return", s_ret, f"{d_ret:+.2%} vs Asset", color_cond="green_if_pos")
             
             s_sh = metrics['Active_Sharpe']
             d_sh = s_sh - metrics['BuyHold_Sharpe']
-            m2.metric("Sharpe Ratio", f"{s_sh:.2f}", f"{d_sh:+.2f} vs Asset")
+            with m2: show_big_number("Sharpe Ratio", s_sh, f"{d_sh:+.2f} vs Asset", fmt="{:.2f}", color_cond="always_blue")
             
             s_mdd = metrics['Active_MDD']
             d_mdd = s_mdd - metrics['BuyHold_MDD']
-            m3.metric("Max Drawdown", f"{s_mdd:.2%}", f"{d_mdd:+.2%} vs Asset")
+            with m3: show_big_number("Max Drawdown", s_mdd, f"{d_mdd:+.2%} vs Asset", color_cond="red_if_neg")
             
             s_vol = metrics['Active_Vol']
             d_vol = s_vol - metrics['BuyHold_Vol']
-            m4.metric("Volatility", f"{s_vol:.2%}", f"{d_vol:+.2%} vs Asset", delta_color="inverse")
+            with m4: show_big_number("Volatility", s_vol, f"{d_vol:+.2%} vs Asset", color_cond="neutral")
 
     with col_exec:
         with st.container(border=True):
@@ -261,65 +252,96 @@ def render_dashboard_risk_v2(df_strat, metrics, ticker, asset_name, strat_name, 
 
 
 # ==============================================================================
-# MAIN LOGIC
+# MAIN LOGIC (SIDEBAR & ERROR HANDLING)
 # ==============================================================================
 def quant_a_ui():
     with st.sidebar:
-        st.header("🎛️ Settings")
+        st.markdown("## ⚙️ **Dashboard Config**")
+        st.divider()
         
-        st.caption("ASSET")
-        selected_name = st.selectbox("Select Asset", options=list(AVAILABLE_ASSETS.keys()))
+        # --- ASSET ---
+        st.markdown("### 1️⃣ Asset Selection")
+        selected_name = st.selectbox("Ticker Symbol", options=list(AVAILABLE_ASSETS.keys()), label_visibility="collapsed")
         ticker = AVAILABLE_ASSETS[selected_name]
 
-        st.markdown("---")
-        st.caption("STRATEGY")
-        strategy_type = st.selectbox("Type", ["Buy & Hold", "MA Crossover", "Momentum", "Mean Reversion"], index=1)
+        st.divider()
+
+        # --- STRATEGY ---
+        st.markdown("### 2️⃣ Strategy Logic")
+        strategy_type = st.selectbox("Method", ["Buy & Hold", "MA Crossover", "Momentum", "Mean Reversion"], label_visibility="collapsed")
         
         params = {}
         if strategy_type == "MA Crossover":
-            c1, c2 = st.columns(2)
-            with c1: params['short_window'] = st.number_input("Fast MA", 5, 100, 20)
-            with c2: params['long_window'] = st.number_input("Slow MA", 50, 300, 50)
+            st.caption("Moving Average Periods")
+            params['short_window'] = st.slider("⚡ Fast MA (Days)", 5, 100, 20)
+            params['long_window'] = st.slider("🐢 Slow MA (Days)", 20, 300, 50)
+            if params['short_window'] >= params['long_window']: st.warning("⚠️ Fast MA should be < Slow MA")
+        
         elif strategy_type == "Momentum":
-            params['mom_window'] = st.number_input("Lookback", 10, 252, 20)
+            st.caption("Trend Following")
+            params['mom_window'] = st.slider("📅 Lookback Period (Days)", 10, 252, 20)
+        
         elif strategy_type == "Mean Reversion":
-            c1, c2 = st.columns(2)
-            with c1: params['bb_window'] = st.number_input("BB Period", 10, 100, 20)
-            with c2: params['bb_std'] = st.number_input("BB Std", 1.0, 4.0, 2.0)
+            st.caption("Bollinger Bands Settings")
+            params['bb_window'] = st.slider("⏳ BB Period", 10, 100, 20)
+            params['bb_std'] = st.slider("sigma Standard Deviation", 1.0, 4.0, 2.0, step=0.1)
 
-        st.markdown("---")
-        st.caption("DATA")
+        st.divider()
+
+        # --- DATA ---
+        st.markdown("### 3️⃣ Timeframe")
         c1, c2 = st.columns(2)
-        with c1: period = st.selectbox("Period", ["1y", "2y", "5y", "max"], index=1)
-        with c2: interval = st.selectbox("Interval", ["1d", "1wk", "1mo"], index=0)
+        with c1: 
+            st.caption("History")
+            period = st.selectbox("History", ["1y", "2y", "5y", "max"], index=1, label_visibility="collapsed")
+        with c2: 
+            st.caption("Step")
+            interval = st.selectbox("Step", ["1d", "1wk", "1mo"], index=0, label_visibility="collapsed")
         
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🚀 RUN ANALYSIS", use_container_width=True):
+        
+        # --- BUTTON ---
+        if st.button("📈 Launch Analytics", use_container_width=True, type="primary"):
             st.session_state.show_analysis = True
 
+    # --- EXECUTION & GESTION ERREURS ---
     if 'show_analysis' not in st.session_state:
         st.session_state.show_analysis = False
 
     if st.session_state.show_analysis:
-        with st.spinner('Computing strategy...'):
+        with st.spinner('Calculating Alpha... 🧠'):
             df = load_stock_data(ticker, period=period, interval=interval)
             
             if df is not None and not df.empty:
+                # --- SAFETY CHECK ANTI-CRASH ---
+                # On vérifie si on a assez de bougies par rapport aux paramètres
+                min_lookback = 0
+                if strategy_type == "MA Crossover": min_lookback = params['long_window']
+                elif strategy_type == "Momentum": min_lookback = params['mom_window']
+                elif strategy_type == "Mean Reversion": min_lookback = params['bb_window']
+                
+                # Si l'historique est plus court que la période nécessaire pour l'indicateur
+                if len(df) < min_lookback:
+                    st.error(f"⚠️ Not enough data! (Need {min_lookback} periods, got {len(df)})")
+                    st.info("💡 **Fix:** Increase 'History' (e.g. 'max') or choose a smaller 'Step' (e.g. '1d').")
+                    st.stop() # Arrêt propre du script
+                # -------------------------------
+
                 df_strat, metrics = apply_strategies(df, strategy_type, params)
                 
-                # REBASE
-                first_valid = df_strat['Position'].first_valid_index() or df_strat.index[0]
-                start_price = df_strat.loc[first_valid, 'Close']
+                # Vérification que la stratégie a bien généré des positions (sinon crash au rebase)
+                first_valid = df_strat['Position'].first_valid_index()
+                if first_valid is None:
+                    st.warning("⚠️ Strategy logic yielded no trades with current settings.")
+                    st.stop()
                 
-                st.sidebar.markdown("---")
-                offset = st.sidebar.slider("Rebase Offset (€)", -50.0, 50.0, 0.0)
-                
-                strat_start = start_price + offset
+                # SIMULATION (REBASE SUR CLOSE)
+                strat_start = df_strat.loc[first_valid, 'Close']
                 base_idx_val = df_strat.loc[first_valid, 'Strat_Active']
                 df_strat['Sim_Active'] = (df_strat['Strat_Active'] / base_idx_val) * strat_start
                 
                 # RENDER
-                render_dashboard_risk_v2(df_strat, metrics, ticker, selected_name, strategy_type, params)
+                render_dashboard_final_v6(df_strat, metrics, ticker, selected_name, strategy_type, params)
 
                 # RAW DATA
                 with st.expander("🗃️ View Raw Data"):
@@ -328,4 +350,4 @@ def quant_a_ui():
             else:
                 st.error("❌ No data found.")
     else:
-        st.info("👈 Please initialize the model from the sidebar.")
+        st.info("👈 Please select an asset and click Launch Analytics.")
