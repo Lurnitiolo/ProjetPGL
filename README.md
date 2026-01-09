@@ -36,8 +36,8 @@ To set up the project locally, follow these steps:
 
 1.  **Clone the repository**
     ```bash
-    git clone [https://github.com/YourUsername/PythonGitLinuxProject.git](https://github.com/YourUsername/PythonGitLinuxProject.git)
-    cd PythonGitLinuxProject
+    git clone [https://github.com/Lurnitiolo/ProjetPGL.git]
+    cd ProjetPGL
     ```
 
 2.  **Create a virtual environment**
