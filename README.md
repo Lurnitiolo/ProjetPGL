@@ -13,7 +13,10 @@ A specialized module designed for the in-depth analysis of individual assets.
 * **Performance Metrics:** Real-time calculation of returns, volatility, and historical performance.
 
 ### 2. Multi-Asset Dashboard
-* [This section is currently under development. Add details about correlation matrices, portfolio optimization, or comparative analysis here.]
+A more global volumed designed for the analysis of a portfolio of multiples assets.
+* **Different Strategy for each asset** : let the user chose the parameters for a MA strategy on each asset
+* **Performance plot and metrics** : Let the user see the portfolio detail with plots, Benchmark, interactive simulation and correlation matrix / heatmap showing Risk / return
+* **Settings** : Let the user chose between differents settings for the balancing of the portfolio (with presets).
 
 ### 3. Automation & System Integration
 * **Cron Jobs:** The project includes backend scripts designed to run on a Linux server to automate data fetching and daily reporting.
